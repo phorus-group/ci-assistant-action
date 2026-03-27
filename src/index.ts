@@ -161,6 +161,8 @@ Branch: {{BRANCH}}`,
       core.getInput("confidence-prompt") ||
       `Rate your confidence from 0-100% that this fix correctly addresses the issue.
 
+If this failure is not caused by the code itself (e.g. infrastructure, flaky tests, runner issues, network errors, timeouts, out of memory), include in your response: ISSUE_TYPE: NON_CODE
+
 Output exactly: CONFIDENCE_PERCENT: <number>`,
   }
 }

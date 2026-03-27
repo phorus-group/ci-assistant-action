@@ -301,7 +301,7 @@ export function parseConfidence(output: string, diff: string, _exitCode: number)
     !/tests? fail|test failure|build fail/i.test(outputAfterConfidence)
 
   if (!diff || diff.length === 0) {
-    if (/non-code|infrastructure|flaky|runner|network|timeout|oom/i.test(output)) {
+    if (/ISSUE_TYPE:\s*NON_CODE/i.test(output)) {
       return {
         status: ConfidenceStatus.NON_CODE,
         percentage,

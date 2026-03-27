@@ -132,7 +132,7 @@ function claudeFails(ctx: StepContext): void {
 function claudeNonCode(ctx: StepContext): void {
   ctx.claude = new MockClaudeRunner()
   ctx.claude.addResult({
-    output: "Infrastructure issue. Runner OOM killed. Network timeout.",
+    output: "Infrastructure issue. Runner OOM killed. Network timeout. ISSUE_TYPE: NON_CODE",
     diff: "",
     filesChanged: [],
   })

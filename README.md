@@ -38,7 +38,7 @@ Interact through PR comment commands to accept, refine, or request alternative f
 - [Confidence scoring](#confidence-scoring)
   - [Status categories](#status-categories)
   - [How confidence is parsed](#how-confidence-is-parsed)
-  - [Non-code detection keywords](#non-code-detection-keywords)
+  - [Non-code detection](#non-code-detection)
 - [Commands reference](#commands-reference)
   - [User commands](#user-commands)
   - [Admin commands](#admin-commands)
@@ -364,13 +364,11 @@ The action parses Claude's output text to determine percentage, whether the erro
 
 </details>
 
-### Non-code detection keywords
+### Non-code detection
 
-When Claude produces no diff (no code changes), the output is checked for these keywords (case-insensitive) to distinguish non-code issues from gave-up:
+When Claude produces no diff (no code changes), the confidence prompt instructs Claude to include `ISSUE_TYPE: NON_CODE` in its response if the failure is not caused by the code itself (e.g. infrastructure, flaky tests, runner issues, network errors, timeouts, out of memory).
 
-`non-code`, `infrastructure`, `flaky`, `runner`, `network`, `timeout`, `oom`
-
-If any match: status is `NON_CODE`. Otherwise: status is `GAVE_UP` with 0% confidence.
+If the marker is present: status is `NON_CODE`. Otherwise: status is `GAVE_UP` with 0% confidence.
 
 ## Commands reference
 
@@ -943,7 +941,7 @@ In command mode, if `failed-run-id` is not provided as an input, the action read
 
 ## Non-code failures
 
-Claude analyzes logs and may determine the failure is not code-related. When no code changes are produced and the output contains keywords like "infrastructure", "runner", "network", "timeout", "oom", or "flaky", the status is set to `NON_CODE`.
+Claude analyzes logs and may determine the failure is not code-related. When no code changes are produced and Claude's output contains the explicit marker `ISSUE_TYPE: NON_CODE`, the status is set to `NON_CODE`.
 
 In `non-code` state:
 - `accept` is not available (no code fix to apply)

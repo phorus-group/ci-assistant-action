@@ -214,7 +214,7 @@ describe("Integration Tests", () => {
     it("detects non-code failure", async () => {
       claude.addResult({
         output:
-          "This appears to be an infrastructure issue. The runner ran out of memory. OOM killed.",
+          "This appears to be an infrastructure issue. The runner ran out of memory. OOM killed. ISSUE_TYPE: NON_CODE",
         diff: "",
         filesChanged: [],
       })
@@ -2187,7 +2187,7 @@ describe("Integration Tests", () => {
       claude = new MockClaudeRunner()
       claude.addResult({
         output:
-          "This is an infrastructure issue. The runner was OOM killed (exit code 137). No code changes can fix this.",
+          "This is an infrastructure issue. The runner was OOM killed (exit code 137). No code changes can fix this. ISSUE_TYPE: NON_CODE",
         diff: "",
         filesChanged: [],
       })
@@ -2544,7 +2544,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Infrastructure issue. Runner OOM killed. Network timeout.",
+        output: "Infrastructure issue. Runner OOM killed. Network timeout. ISSUE_TYPE: NON_CODE",
         diff: "",
         filesChanged: [],
       })
@@ -2762,7 +2762,8 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "This is actually an infrastructure issue. Runner timeout. Network flaky.",
+        output:
+          "This is actually an infrastructure issue. Runner timeout. Network flaky. ISSUE_TYPE: NON_CODE",
         diff: "",
         filesChanged: [],
       })

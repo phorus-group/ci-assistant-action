@@ -450,9 +450,15 @@ describe("Parametrized: Confidence parsing", () => {
       30,
     ],
     ["Made some changes. CONFIDENCE_PERCENT: 40", "some diff", true, ConfidenceStatus.NEITHER, 40],
-    ["Infrastructure issue. OOM. CONFIDENCE_PERCENT: 80", "", false, ConfidenceStatus.NON_CODE, 80],
     [
-      "Runner timeout. Network issue. Flaky test.",
+      "Infrastructure issue. OOM. ISSUE_TYPE: NON_CODE CONFIDENCE_PERCENT: 80",
+      "",
+      false,
+      ConfidenceStatus.NON_CODE,
+      80,
+    ],
+    [
+      "Runner timeout. Network issue. Flaky test. ISSUE_TYPE: NON_CODE",
       "",
       false,
       ConfidenceStatus.NON_CODE,
