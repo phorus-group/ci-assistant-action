@@ -1,0 +1,67 @@
+{
+  "name": "ci-assistant-action",
+  "version": "1.0.0",
+  "description": "GitHub Action that analyzes CI/CD pipeline failures using Claude Code, suggests fixes via PR comments, and posts summaries to Slack. Also works as on-demand code assistance via /ci-assistant suggest, even without pipeline failures.",
+  "main": "dist/index.js",
+  "engines": {
+    "npm": "please-use-yarn"
+  },
+  "scripts": {
+    "prepare": "husky",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/index.js --sourcemap",
+    "lint": "eslint **/*.ts --no-error-on-unmatched-pattern",
+    "lint:fix": "eslint **/*.ts --fix --no-error-on-unmatched-pattern",
+    "test": "jest --ci"
+  },
+  "keywords": [
+    "github-action",
+    "ci",
+    "claude",
+    "claude-code",
+    "ai",
+    "pipeline",
+    "fix",
+    "assistant",
+    "slack",
+    "automation"
+  ],
+  "author": "Phorus Group",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "jest-junit": {
+    "outputDirectory": "./test/.coverage",
+    "outputName": "junit.xml"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix",
+      "jest --bail --findRelatedTests"
+    ]
+  },
+  "dependencies": {
+    "@actions/core": "3.0.0",
+    "@actions/exec": "3.0.0",
+    "@actions/github": "9.0.0",
+    "@actions/io": "3.0.2",
+    "@octokit/rest": "22.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.29.0",
+    "@swc/core": "1.15.21",
+    "@swc/jest": "0.2.39",
+    "@types/jest": "30.0.0",
+    "@types/node": "25.5.0",
+    "esbuild": "0.27.4",
+    "eslint": "9.29.0",
+    "eslint-plugin-prettier": "5.5.5",
+    "eslint-plugin-sonarjs": "3.0.2",
+    "eslint-plugin-unused-imports": "4.4.1",
+    "husky": "9.1.7",
+    "jest": "30.3.0",
+    "jest-junit": "16.0.0",
+    "lint-staged": "16.4.0",
+    "prettier": "3.8.1",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.57.2"
+  }
+}

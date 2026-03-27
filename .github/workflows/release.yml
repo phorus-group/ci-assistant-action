@@ -1,0 +1,55 @@
+name: "Release"
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build dist
+        run: yarn build
+
+      - name: Commit dist/ to the release tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add dist/ --force
+          git commit -m "build: bundle dist/ for ${{ github.event.release.tag_name }}"
+
+          # Update the release tag to include the dist/ commit
+          git tag -f "${{ github.event.release.tag_name }}"
+          git push origin "${{ github.event.release.tag_name }}" --force
+
+      - name: Update major version tag
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+
+          # Extract major version (v1.0.0 -> v1)
+          MAJOR=$(echo "$TAG" | grep -oP '^v\d+' || echo "")
+          if [[ -z "$MAJOR" ]]; then
+            echo "Tag $TAG does not follow vX.Y.Z format, skipping major tag update"
+            exit 0
+          fi
+
+          git tag -f "$MAJOR"
+          git push origin "$MAJOR" --force
+          echo "Updated $MAJOR tag to point at $TAG"

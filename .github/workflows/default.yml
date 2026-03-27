@@ -1,0 +1,21 @@
+name: "Default Workflow"
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types: [opened, edited, synchronize]
+  push:
+    branches:
+      - main
+
+jobs:
+  default-workflow:
+    uses: phorus-group/workflows/.github/workflows/node.yarn.yml@main
+    with:
+      disable-integration-test: true
+      slack-failure-channel: "C0AMP6VM0EB"
+    secrets:
+      slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+      codecov-token: ${{ secrets.CODECOV_TOKEN }}

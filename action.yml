@@ -1,0 +1,128 @@
+name: "CI Assistant Action"
+description: "Analyzes CI/CD pipeline failures using Claude Code, suggests fixes via PR comments, and posts summaries to Slack. Also works as on-demand code assistance via /ci-assistant suggest, even without pipeline failures."
+author: "Phorus Group"
+
+inputs:
+  mode:
+    description: "Action mode: auto-fix, command, manual, cleanup"
+    required: true
+  working-directory:
+    description: "Directory where Claude Code runs"
+    required: false
+    default: "."
+  max-turns:
+    description: "Max Claude conversation turns per attempt. Use -1 for unlimited."
+    required: false
+    default: "50"
+  max-retries:
+    description: "Max retry attempts (each gets fresh max-turns budget)"
+    required: false
+    default: "3"
+  max-retry-commands:
+    description: "Max /ci-assistant retry commands per PR. Use -1 for unlimited."
+    required: false
+    default: "2"
+  max-alternative-commands:
+    description: "Max /ci-assistant alternative commands per PR. Use -1 for unlimited."
+    required: false
+    default: "3"
+  max-suggest-commands:
+    description: "Max /ci-assistant suggest commands per PR. Use -1 for unlimited."
+    required: false
+    default: "3"
+  max-explain-commands:
+    description: "Max /ci-assistant explain commands per PR. Use -1 for unlimited."
+    required: false
+    default: "3"
+  max-total-commands:
+    description: "Max total non-admin commands per PR. Use -1 for unlimited."
+    required: false
+    default: "20"
+  model:
+    description: "Claude model to use (e.g. 'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001')"
+    required: false
+    default: "claude-sonnet-4-6"
+  skip-permissions:
+    description: "Pass --dangerously-skip-permissions to Claude Code. Safe in CI since the runner is ephemeral. Set to false to require permission checks."
+    required: false
+    default: "true"
+  allowed-tools:
+    description: "Comma-separated list of tools Claude Code can use (e.g. 'Bash,Edit,Read,Write,WebSearch'). Empty means all tools available."
+    required: false
+    default: ""
+  disallowed-tools:
+    description: "Comma-separated list of tools Claude Code cannot use (e.g. 'WebSearch,WebFetch'). Takes precedence over allowed-tools."
+    required: false
+    default: ""
+  append-system-prompt:
+    description: "Additional system prompt appended to Claude Code's default system prompt. Use for project-specific instructions not covered by CLAUDE.md."
+    required: false
+    default: ""
+  admin-users:
+    description: "Comma-separated GitHub usernames of admin users (e.g. user1,user2)"
+    required: false
+    default: ""
+  banned-users:
+    description: "Comma-separated GitHub usernames permanently banned from using CI Assistant"
+    required: false
+    default: ""
+  slack-failure-channel:
+    description: "Slack channel ID for fix notifications (optional, everything works without Slack)"
+    required: false
+    default: ""
+  slack-thread-ts:
+    description: "Slack thread timestamp to post as a reply (optional)"
+    required: false
+    default: ""
+  slack-bot-token:
+    description: "Slack Bot OAuth Token (optional)"
+    required: false
+    default: ""
+  failed-run-id:
+    description: "The workflow run ID that failed"
+    required: false
+    default: ""
+  failed-branch:
+    description: "The branch that failed"
+    required: false
+    default: ""
+  failed-sha:
+    description: "The commit SHA that failed"
+    required: false
+    default: ""
+  failed-pr-number:
+    description: "The PR number (if failure was on a PR)"
+    required: false
+    default: ""
+  comment-pr-number:
+    description: "The PR number the comment was made on (command mode)"
+    required: false
+    default: ""
+  auto-fix-prompt:
+    description: "Prompt template for automatic fix attempts. Placeholders: {{FAILURE_LOGS}}, {{REPO}}, {{BRANCH}}, {{SHA}}, {{CONVERSATION_HISTORY}}, {{REPRODUCTION_OUTPUT}}"
+    required: false
+    default: ""
+  retry-prompt:
+    description: "Prompt template for retry attempts. Placeholders: {{FAILURE_LOGS}}, {{PREVIOUS_ATTEMPTS}}, {{REPRODUCTION_OUTPUT}}, {{REPO}}, {{BRANCH}}, {{SHA}}, {{CONVERSATION_HISTORY}}"
+    required: false
+    default: ""
+  alternative-prompt:
+    description: "Prompt template for alternative suggestions. Placeholders: {{FAILURE_LOGS}}, {{PREVIOUS_SUGGESTIONS}}, {{REPO}}, {{BRANCH}}, {{SHA}}, {{CONVERSATION_HISTORY}}"
+    required: false
+    default: ""
+  suggest-prompt:
+    description: "Prompt template for suggest commands. Placeholders: {{USER_CONTEXT}}, {{FAILURE_LOGS_IF_AVAILABLE}}, {{CONVERSATION_HISTORY}}, {{REPO}}, {{BRANCH}}, {{SHA}}"
+    required: false
+    default: ""
+  explain-prompt:
+    description: "Prompt template for explain commands. Placeholders: {{USER_PROMPT}}, {{FAILURE_LOGS_IF_AVAILABLE}}, {{LATEST_FIX_DIFF}}, {{CONVERSATION_HISTORY}}, {{REPO}}, {{BRANCH}}"
+    required: false
+    default: ""
+  confidence-prompt:
+    description: "Prompt appended to fix prompts for confidence analysis. Placeholders: {{FAILURE_LOGS}}, {{REPRODUCTION_OUTPUT}}, {{FIX_DIFF}}, {{POST_FIX_TEST_OUTPUT}}, {{PREVIOUS_SUGGESTIONS}}, {{USER_CONTEXT}}"
+    required: false
+    default: ""
+
+runs:
+  using: "node22"
+  main: "dist/index.js"
