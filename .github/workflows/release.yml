@@ -8,6 +8,19 @@ permissions:
   contents: write
 
 jobs:
+  notify-start:
+    name: Notify release started
+    runs-on: ubuntu-latest
+    steps:
+      - uses: phorus-group/slack-pipeline-notify-action@main
+        with:
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          notifications-channel: "C0AMP6VM0EB"
+          status: running
+          releases-channel: "C0AM8AEGJG7"
+          release: true
+          release-url: ${{ github.event.release.html_url }}
+
   build-and-tag:
     runs-on: ubuntu-latest
     steps:
@@ -53,3 +66,18 @@ jobs:
           git tag -f "$MAJOR"
           git push origin "$MAJOR" --force
           echo "Updated $MAJOR tag to point at $TAG"
+
+  notify-end:
+    name: Notify release finished
+    needs: [build-and-tag]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: phorus-group/slack-pipeline-notify-action@main
+        with:
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          notifications-channel: "C0AMP6VM0EB"
+          status: ${{ contains(needs.*.result, 'failure') && 'failure' || 'success' }}
+          releases-channel: "C0AM8AEGJG7"
+          release: true
+          release-url: ${{ github.event.release.html_url }}

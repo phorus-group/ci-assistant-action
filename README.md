@@ -3,24 +3,27 @@
 [![GitHub license](https://img.shields.io/badge/license-Apache%20License%202.0-blue.svg?style=flat)](https://www.apache.org/licenses/LICENSE-2.0)
 [![codecov](https://codecov.io/gh/phorus-group/ci-assistant-action/branch/main/graph/badge.svg)](https://codecov.io/gh/phorus-group/ci-assistant-action)
 
-GitHub Action that analyzes CI/CD pipeline failures using Claude Code,
-suggests fixes via PR comments, and posts summaries to Slack. Also works as
-on-demand code assistance on any PR via `/ci-assistant suggest`, even without
-pipeline failures. Interact through PR comment commands to accept, refine,
-or request alternative fixes.
+GitHub Action that watches your CI/CD pipelines and uses [Claude Code](https://docs.anthropic.com/en/docs/build-with-claude/claude-code)
+to analyze failures, suggest fixes via PR comments, and post summaries to Slack. Also works as
+on-demand code assistance on any PR via `/ci-assistant suggest`, even without pipeline failures.
+Interact through PR comment commands to accept, refine, or request alternative fixes.
 
 ### Notes
 
-> Dependencies are regularly updated by [Renovate](https://github.com/phorus-group/renovate).
+> The project runs a vulnerability analysis pipeline regularly,
+> any found vulnerabilities will be fixed as soon as possible.
+
+> The project dependencies are regularly updated by [Renovate](https://github.com/phorus-group/renovate).
 
 ## Table of contents
 
-- [Features](#features)
 - [Getting started](#getting-started)
+  - [Usage overview](#usage-overview)
   - [Prerequisites](#prerequisites)
-  - [Quick start (reusable workflow)](#quick-start-reusable-workflow)
-  - [Quick start (standalone)](#quick-start-standalone)
+  - [Quick start with the reusable workflow](#quick-start-with-the-reusable-workflow)
+  - [Quick start standalone](#quick-start-standalone)
   - [Custom bot identity](#custom-bot-identity)
+- [Features](#features)
 - [Modes](#modes)
 - [How it works](#how-it-works)
   - [PR branch failure (auto-fix)](#pr-branch-failure-auto-fix)
@@ -36,7 +39,7 @@ or request alternative fixes.
   - [Status categories](#status-categories)
   - [How confidence is parsed](#how-confidence-is-parsed)
   - [Non-code detection keywords](#non-code-detection-keywords)
-- [Commands](#commands)
+- [Commands reference](#commands-reference)
   - [User commands](#user-commands)
   - [Admin commands](#admin-commands)
   - [Unknown and invalid commands](#unknown-and-invalid-commands)
@@ -91,42 +94,30 @@ or request alternative fixes.
 
 ***
 
-## Features
-
-- Pipeline failure analysis and fix suggestions via Claude Code CLI
-- 7 interactive PR comment commands: `/ci-assistant accept`, `accept #fix-<id>`, `alternative`, `suggest <text>`, `retry`, `explain`, `help`
-- 6 admin commands: `set-limit`, `reset-limits`, `reset-state`, `set-model`, `set-max-turns`, `unban`
-- 6 confidence status categories with percentage scoring (0-100%)
-- Retry loop (up to N attempts) with context passing between attempts, working directory restore, and best-fix selection
-- On-demand code assistance via `/ci-assistant suggest` on any PR, even without pipeline failures
-- Non-code failure detection (infrastructure, runner, network, OOM, flaky tests)
-- 6 customizable prompt templates with 12 `{{PLACEHOLDER}}` variables
-- Slack integration with 4 message types, live updates across workflow runs, and self-truncating blocks
-- Prompt injection detection (40 patterns across 4 categories) with automatic per-PR user banning
-- Git ref storage for fix suggestions (invisible refs, cherry-pick on accept)
-- 7 configurable per-command limits plus a general total limit, with admin overrides
-- State machine with 4 states governing which commands are valid
-- State reset on new commit (per-command limits and fix history cleared, general total preserved)
-- Works with Claude OAuth token (subscription quota) or API key (pay-per-use), with automatic fallback
-- Custom bot identity via GitHub App (no seat cost)
-- Auto-cleanup of stale `ci-assistant/` PRs, orphaned refs, and regular PR state
-- Tag failure handling with source branch resolution via `git branch --contains` after `git fetch --unshallow`
-- Branch failure handling: first fix pushed directly to ci-assistant PR, subsequent fixes stored as refs
-- Fork safety (skips workflow_run from forks) and bot comment filtering (prevents infinite loops)
-- Meta comment integrity (only trusts comments from the bot's own identity)
-- 4 operating modes: `auto-fix`, `command`, `manual`, `cleanup`
-
 ## Getting started
+
+### Usage overview
+
+A quick walkthrough of what CI Assistant can do. Each scenario links to a deeper section for full details.
+
+- **Your pipeline fails.** CI Assistant automatically reads the logs, reproduces the error, and posts a fix suggestion on your PR. See [How it works](#how-it-works).
+- **Accept the fix.** Post `/ci-assistant accept` to cherry-pick the suggestion onto your branch.
+- **Ask for an alternative.** Post `/ci-assistant alternative` and Claude tries a fundamentally different approach.
+- **Ask for an explanation.** Post `/ci-assistant explain` for a walkthrough of the fix, or `/ci-assistant explain -p "your question"` to ask anything about the code. Works on any PR, even without a prior failure.
+- **Request changes on demand.** Post `/ci-assistant suggest add tests for the UserService` on any PR, even without a prior failure.
+- **Retry when CI Assistant gives up.** Post `/ci-assistant retry` to run the analysis from scratch, or `/ci-assistant suggest the issue is in the migration` to provide additional context.
+- **Check usage and get help.** Post `/ci-assistant limits` or `/ci-assistant help`.
+- **Admin commands.** Admins can adjust limits, override the Claude model, start fresh on a PR, and unban users. See [Admin commands](#admin-commands).
 
 ### Prerequisites
 
-- **Claude Code authentication**: one of:
-  - `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`, uses subscription quota, recommended)
-  - `ANTHROPIC_API_KEY` (pay-per-use fallback)
+- **Claude Code authentication**, one of:
+  - `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, uses your subscription quota, recommended
+  - `ANTHROPIC_API_KEY` as a pay-per-use fallback
 - **GitHub repository** with Actions enabled
-- **GitHub token** with write access to contents, pull-requests, issues, and read access to actions (the default `github.token` works)
+- **GitHub token** with write access to contents, pull-requests, and issues, plus read access to actions. The default `github.token` works out of the box.
 
-### Quick start (reusable workflow)
+### Quick start with the reusable workflow
 
 Create `.github/workflows/ci-assistant.yml` in your repository:
 
@@ -150,17 +141,19 @@ jobs:
     uses: phorus-group/workflows/.github/workflows/ci-assistant.yml@main
     with:
       java-version: "21"
-      slack-failure-channel: "C0AMP6VM0EB"
-      admin-users: "irios-phorus"
+      slack-failure-channel: "YOUR_CHANNEL_ID"
+      admin-users: "your-username"
     secrets:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
       slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
 ```
 
-The `workflow_run` trigger must exist on the default branch (main) to activate. Adding it on a feature branch will not work until merged. The trigger fires on `completed` (both success and failure) because the action handles both: failure triggers auto-fix, success triggers auto-cleanup.
+The `workflow_run` trigger must exist on the default branch to activate. It fires on `completed` because the action handles both failure and success: failure triggers auto-fix, success triggers auto-cleanup.
 
-### Quick start (standalone)
+Set `java-version` or `node-version` so Claude can reproduce errors and run your project's tests. Leave both out if your project needs neither. See the [reusable workflow inputs](https://github.com/phorus-group/workflows) for all available options.
+
+### Quick start standalone
 
 If you cannot use the reusable workflow, call the action directly. See the [custom workflow example](#custom-workflow-no-reusable-workflow) for a complete standalone setup with all three triggers.
 
@@ -186,6 +179,29 @@ By default, comments and commits appear as `github-actions[bot]`. For a custom i
 ```
 
 GitHub Apps are free (no seat cost). The app identity shows on all comments and commits, and the meta comment integrity check uses this identity to verify ownership.
+
+## Features
+
+- Pipeline failure analysis and fix suggestions via Claude Code CLI
+- Interactive PR comment commands: `accept`, `alternative`, `suggest`, `retry`, `explain`, `help`, `limits`
+- Admin commands for limit overrides, model selection, state management, and user banning
+- Confidence status categories with percentage scoring
+- Retry loop with context passing between attempts, working directory restore, and best-fix selection
+- On-demand code assistance via `/ci-assistant suggest` on any PR, even without pipeline failures
+- Non-code failure detection for infrastructure, runner, network, OOM, and flaky test issues
+- Customizable prompt templates with `{{PLACEHOLDER}}` variables
+- Slack integration with live updates across workflow runs and self-truncating blocks
+- Prompt injection detection with automatic per-PR user banning
+- Git ref storage for fix suggestions with invisible refs and cherry-pick on accept
+- Configurable per-command limits plus a general total limit, with admin overrides
+- State machine governing which commands are valid at any point
+- State reset on new commit to keep limits fresh while preserving anti-abuse totals
+- Works with Claude OAuth token or API key, with automatic fallback
+- Custom bot identity via GitHub App at no additional cost
+- Auto-cleanup of stale `ci-assistant/` PRs, orphaned refs, and regular PR state
+- Tag failure handling with automatic source branch resolution
+- Fork safety and bot comment filtering to prevent infinite loops
+- Multiple operating modes: `auto-fix`, `command`, `manual`, `cleanup`
 
 ## Modes
 
@@ -356,9 +372,9 @@ When Claude produces no diff (no code changes), the output is checked for these 
 
 If any match: status is `NON_CODE`. Otherwise: status is `GAVE_UP` with 0% confidence.
 
-## Commands
+## Commands reference
 
-All commands are triggered by posting a PR comment starting with `/ci-assistant`.
+All commands are triggered by posting a PR comment starting with `/ci-assistant`. For a walkthrough with examples, see [What can you do with it?](#what-can-you-do-with-it) above.
 
 ### User commands
 
@@ -709,7 +725,7 @@ Suggestion and status messages are posted once and updated in place on subsequen
 
 ### Prompt injection protection
 
-User input from `/ci-assistant suggest <text>` is scanned before being passed to Claude. 40 patterns across 4 categories are checked. If any match, the command is blocked and the user is banned on that PR.
+User input from `/ci-assistant suggest <text>` is scanned before being passed to Claude. Multiple patterns across several categories are checked. If any match, the command is blocked and the user is banned on that PR.
 
 <details>
 <summary>All detection patterns (40 total)</summary>
@@ -1000,8 +1016,8 @@ jobs:
     uses: phorus-group/workflows/.github/workflows/ci-assistant.yml@main
     with:
       java-version: "21"
-      slack-failure-channel: "C0AMP6VM0EB"
-      admin-users: "irios-phorus"
+      slack-failure-channel: "YOUR_CHANNEL_ID"
+      admin-users: "your-username"
     secrets:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -1025,7 +1041,7 @@ jobs:
     uses: phorus-group/workflows/.github/workflows/ci-assistant.yml@main
     with:
       node-version: "20"
-      admin-users: "irios-phorus"
+      admin-users: "your-username"
     secrets:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -1108,8 +1124,8 @@ jobs:
           failed-sha: ${{ steps.context.outputs.failed-sha }}
           failed-pr-number: ${{ steps.context.outputs.failed-pr-number }}
           comment-pr-number: ${{ steps.context.outputs.comment-pr-number }}
-          admin-users: "irios-phorus"
-          slack-failure-channel: "C0AMP6VM0EB"
+          admin-users: "your-username"
+          slack-failure-channel: "YOUR_CHANNEL_ID"
           slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
         env:
           CI_ASSISTANT_COMMENT_BODY: ${{ github.event.comment.body }}
@@ -1139,7 +1155,7 @@ jobs:
 ```bash
 yarn install       # install dependencies
 yarn lint          # run eslint
-yarn test          # run 286 tests across 8 suites
+yarn test          # run all tests
 yarn build         # bundle with esbuild to dist/index.js
 ```
 
