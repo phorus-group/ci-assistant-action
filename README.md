@@ -161,12 +161,16 @@ If you cannot use the reusable workflow, call the action directly. See the [cust
 
 ### Custom bot identity
 
-By default, comments and commits appear as `github-actions[bot]`. For a custom identity like `ci-assistant[bot]`:
+By default, comments and commits appear as `github-actions[bot]`. For a custom identity like `CI Assistant[bot]`:
 
-1. Create a [GitHub App](https://docs.github.com/en/apps/creating-github-apps) with permissions: Contents (write), Issues (write), Pull Requests (write), Actions (read)
+1. [Create a GitHub App](https://docs.github.com/en/apps/creating-github-apps) with the following repository permissions:
+   - **Contents: Read & Write** for pushing fix branches, creating/deleting git refs, and cherry-picking accepted fixes
+   - **Issues: Read & Write** for posting and updating PR comments (the GitHub API serves PR comments through the Issues API)
+   - **Pull requests: Read & Write** for creating fix PRs on branch failures, closing stale `ci-assistant/` PRs during cleanup, and reading PR metadata
+   - **Actions: Read-only** for downloading failure logs from workflow runs
 2. Install the app on your organization or repository
-3. Store the **App ID** and **Private Key** as organization secrets
-4. Use [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) to generate a token in the workflow:
+3. Store the **App ID** and **Private Key** as organization secrets (`CI_ASSISTANT_APP_ID` and `CI_ASSISTANT_PRIVATE_KEY`)
+4. Pass them to the reusable workflow or use [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) to generate a token when calling the action directly:
 
 ```yaml
 - uses: actions/create-github-app-token@v1
@@ -968,15 +972,14 @@ The same diff always produces the same fix ID. Different diffs produce different
 
 ## GitHub permissions
 
-The action requires these permissions when called directly (the reusable workflow sets them automatically):
+The action requires these permissions when called directly (the reusable workflow sets them automatically). These are the same permissions required when creating a GitHub App for custom bot identity.
 
 | Permission | Level | Why |
 |---|---|---|
-| `contents` | write | Push fix commits, create/delete branches, create/delete refs |
-| `pull-requests` | write | Create/close ci-assistant PRs |
-| `issues` | write | Post and update PR comments (GitHub treats PR comments as issue comments) |
-| `actions` | read | Download workflow run logs |
-| `checks` | read | Only needed for `enforce-all-checks` in the reusable workflow |
+| `contents` | write | Push fix branches, create and delete git refs for fix storage, cherry-pick accepted fixes |
+| `pull-requests` | write | Create fix PRs on branch failures, close stale `ci-assistant/` PRs during cleanup, read PR metadata |
+| `issues` | write | Post and update PR comments. The GitHub API serves PR comments through the Issues API, so this permission is required for all comment operations. |
+| `actions` | read | Download failure logs from workflow runs for analysis |
 
 ## Concurrency
 
