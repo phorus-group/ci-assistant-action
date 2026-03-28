@@ -16,6 +16,7 @@ import { checkForExploitation } from "./security"
 import {
   OctokitGitHubClient,
   GitHubClient,
+  PR,
   readMeta,
   writeMeta,
   getPreviousSuggestions,
