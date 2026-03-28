@@ -122,6 +122,22 @@ inputs:
     description: "Prompt appended to fix prompts for confidence analysis. Placeholders: {{FAILURE_LOGS}}, {{REPRODUCTION_OUTPUT}}, {{FIX_DIFF}}, {{POST_FIX_TEST_OUTPUT}}, {{PREVIOUS_SUGGESTIONS}}, {{USER_CONTEXT}}"
     required: false
     default: ""
+  github-token:
+    description: "GitHub token for API calls (supports default github.token or GitHub App tokens)"
+    required: false
+    default: ""
+  claude-code-oauth-token:
+    description: "Claude Code OAuth token (from claude setup-token, uses subscription quota)"
+    required: false
+    default: ""
+  anthropic-api-key:
+    description: "Anthropic API key (pay-per-use fallback)"
+    required: false
+    default: ""
+  comment-body:
+    description: "The PR comment text (command mode)"
+    required: false
+    default: ""
 
 runs:
   using: "node22"

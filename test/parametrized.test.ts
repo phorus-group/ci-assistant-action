@@ -52,6 +52,10 @@ const defaultInputs: ActionInputs = {
   suggestPrompt: "",
   explainPrompt: "",
   confidencePrompt: "",
+  githubToken: "",
+  claudeCodeOauthToken: "",
+  anthropicApiKey: "",
+  commentBody: "",
 }
 
 // ============================
@@ -128,7 +132,7 @@ describe("Parametrized: Command parsing", () => {
     expect(result).not.toBeNull()
     expect(result!.command).toBe(expectedCmd)
     for (const [key, value] of Object.entries(expectedFields)) {
-      expect((result as Record<string, unknown>)[key]).toEqual(value)
+      expect((result as unknown as Record<string, unknown>)[key]).toEqual(value)
     }
   })
 
@@ -306,7 +310,7 @@ describe("Parametrized: Counter increments", () => {
     (command, specificKey, totalKey) => {
       const meta = { ...DEFAULT_META }
       const updated = incrementCounter(meta, command)
-      const record = updated as Record<string, unknown>
+      const record = updated as unknown as Record<string, unknown>
       // The specific counter should be 1
       expect(record[specificKey]).toBe(1)
       // Total should be 1
@@ -641,7 +645,7 @@ describe("Parametrized: Command parsing edge cases", () => {
     expect(result).not.toBeNull()
     expect(result!.command).toBe(expectedCmd)
     for (const [key, value] of Object.entries(expectedFields)) {
-      expect((result as Record<string, unknown>)[key]).toEqual(value)
+      expect((result as unknown as Record<string, unknown>)[key]).toEqual(value)
     }
   })
 })

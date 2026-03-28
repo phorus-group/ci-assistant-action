@@ -112,10 +112,10 @@ A quick walkthrough of what CI Assistant can do. Each scenario links to a deeper
 ### Prerequisites
 
 - **Claude Code authentication**, one of:
-  - `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, uses your subscription quota, recommended
-  - `ANTHROPIC_API_KEY` as a pay-per-use fallback
+  - `claude-code-oauth-token` from `claude setup-token`, uses your subscription quota, recommended
+  - `anthropic-api-key` as a pay-per-use fallback
 - **GitHub repository** with Actions enabled
-- **GitHub token** with write access to contents, pull-requests, and issues, plus read access to actions. The default `github.token` works out of the box.
+- **GitHub token** with write access to contents, pull-requests, and issues, plus read access to actions. The built-in `GITHUB_TOKEN` works out of the box.
 
 ### Quick start with the reusable workflow
 
@@ -145,8 +145,10 @@ jobs:
       admin-users: "your-username"
     secrets:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
       slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+      # Optional: GitHub App for custom bot identity
+      # github-app-id: ${{ secrets.CI_ASSISTANT_APP_ID }}
+      # github-app-private-key: ${{ secrets.CI_ASSISTANT_PRIVATE_KEY }}
 ```
 
 The `workflow_run` trigger must exist on the default branch to activate. It fires on `completed` because the action handles both failure and success: failure triggers auto-fix, success triggers auto-cleanup.
@@ -174,8 +176,8 @@ By default, comments and commits appear as `github-actions[bot]`. For a custom i
     private-key: ${{ secrets.CI_ASSISTANT_PRIVATE_KEY }}
 
 - uses: phorus-group/ci-assistant-action@v1
-  env:
-    GH_TOKEN: ${{ steps.app-token.outputs.token }}
+  with:
+    github-token: ${{ steps.app-token.outputs.token }}
 ```
 
 GitHub Apps are free (no seat cost). The app identity shows on all comments and commits, and the meta comment integrity check uses this identity to verify ownership.
@@ -214,7 +216,7 @@ The `mode` input controls which flow the action executes:
 | `manual` | `workflow_dispatch` with a run ID | Same as auto-fix but fetches branch/SHA from the provided run ID |
 | `cleanup` | `workflow_run` with `conclusion == 'success'` | Closes stale ci-assistant PRs, cleans orphaned refs, resets PR state |
 
-`cleanup` mode does not require Claude authentication (only `GH_TOKEN`). All other modes install the Claude Code CLI and validate auth before proceeding.
+`cleanup` mode does not require Claude authentication (only a GitHub token). All other modes install the Claude Code CLI and validate auth before proceeding.
 
 ## How it works
 
@@ -503,7 +505,7 @@ The effective limit for any command is: `limitOverrides[type]` if defined, other
 | OAuth token expired, no API key | Error posted to step summary, action fails (`core.setFailed`) |
 | No OAuth token, API key available | Warning posted to step summary recommending `claude setup-token`, uses API key |
 | Neither configured | Error posted to step summary listing both options, action fails |
-| `cleanup` mode | Auth validation skipped entirely (only needs `GH_TOKEN`) |
+| `cleanup` mode | Auth validation skipped entirely (only needs GitHub token) |
 
 OAuth token validation runs `claude --version` with the token in the environment. If the command produces output, the token is valid.
 
@@ -519,12 +521,12 @@ claude setup-token
 
 ### GitHub token
 
-The action reads `GH_TOKEN` from the environment (not `GITHUB_TOKEN`) to support custom tokens.
+The action accepts an optional `github-token` input for custom bot identity via GitHub App. When not provided, it falls back to the built-in `GITHUB_TOKEN`.
 
 | Token type | Identity | Cost | Notes |
 |---|---|---|---|
-| Default `github.token` | `github-actions[bot]` | Free | No setup needed |
-| GitHub App token | `<app-name>[bot]` | Free | Custom identity, recommended (see [Custom bot identity](#custom-bot-identity)) |
+| Default `GITHUB_TOKEN` | `github-actions[bot]` | Free | No setup needed, used automatically |
+| GitHub App token | `<app-name>[bot]` | Free | Pass via `github-token` input, recommended (see [Custom bot identity](#custom-bot-identity)) |
 | PAT | User's account | Costs a seat | Not recommended |
 
 ## Customizing prompts
@@ -675,15 +677,16 @@ Output exactly: CONFIDENCE_PERCENT: <number>
 | `suggest-prompt` | (built-in) | Prompt template for suggest commands |
 | `explain-prompt` | (built-in) | Prompt template for explain commands |
 | `confidence-prompt` | (built-in) | Prompt appended to all fix prompts for confidence analysis |
+| `github-token` | `""` | GitHub token for API calls. Falls back to `GITHUB_TOKEN`. Only needed for GitHub App custom identity. |
+| `claude-code-oauth-token` | `""` | Claude Code OAuth token (from `claude setup-token`, uses subscription quota) |
+| `anthropic-api-key` | `""` | Anthropic API key (pay-per-use fallback) |
+| `comment-body` | `""` | The PR comment text (command mode) |
 
 ## Environment variables
 
 | Variable | Purpose |
 |---|---|
-| `CI_ASSISTANT_COMMENT_BODY` | The PR comment text (command mode). Passed as env var instead of an input to avoid YAML/shell escaping issues with user text. |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude OAuth token (from `claude setup-token`) |
-| `ANTHROPIC_API_KEY` | Claude API key (pay-per-use) |
-| `GH_TOKEN` | GitHub token for API calls (defaults to `github.token` in workflows) |
+| `GITHUB_TOKEN` | Built-in GitHub token, used as fallback when `github-token` input is not provided |
 | `GITHUB_REPOSITORY` | Set automatically by GitHub Actions (`owner/repo`) |
 | `GITHUB_ACTOR` | The user who triggered the workflow (used for ban/admin checks) |
 | `GITHUB_TRIGGERING_ACTOR` | Fallback for comment author identification |
@@ -1018,7 +1021,6 @@ jobs:
       admin-users: "your-username"
     secrets:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
       slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
 ```
 
@@ -1042,7 +1044,6 @@ jobs:
       admin-users: "your-username"
     secrets:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 ### Custom workflow (no reusable workflow)
@@ -1125,11 +1126,9 @@ jobs:
           admin-users: "your-username"
           slack-failure-channel: "YOUR_CHANNEL_ID"
           slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
-        env:
-          CI_ASSISTANT_COMMENT_BODY: ${{ github.event.comment.body }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GH_TOKEN: ${{ github.token }}
+          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          comment-body: ${{ github.event.comment.body }}
 
   auto-cleanup:
     if: >-
@@ -1144,8 +1143,6 @@ jobs:
         with:
           mode: cleanup
           failed-branch: ${{ github.event.workflow_run.head_branch }}
-        env:
-          GH_TOKEN: ${{ github.token }}
 ```
 
 ## Building and contributing

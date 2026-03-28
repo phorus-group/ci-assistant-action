@@ -164,6 +164,10 @@ Branch: {{BRANCH}}`,
 If this failure is not caused by the code itself (e.g. infrastructure, flaky tests, runner issues, network errors, timeouts, out of memory), include in your response: ISSUE_TYPE: NON_CODE
 
 Output exactly: CONFIDENCE_PERCENT: <number>`,
+    githubToken: core.getInput("github-token") || "",
+    claudeCodeOauthToken: core.getInput("claude-code-oauth-token") || "",
+    anthropicApiKey: core.getInput("anthropic-api-key") || "",
+    commentBody: core.getInput("comment-body") || "",
   }
 }
 
@@ -176,7 +180,15 @@ export async function run(
   try {
     const inputs = getInputs()
 
-    const github = githubClient || new OctokitGitHubClient()
+    // Export token inputs to process.env so child processes (claude CLI, gh CLI) can read them
+    // github-token falls back to the built-in GITHUB_TOKEN
+    const ghToken = inputs.githubToken || process.env.GITHUB_TOKEN || ""
+    if (ghToken) process.env.GH_TOKEN = ghToken
+    if (inputs.claudeCodeOauthToken)
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = inputs.claudeCodeOauthToken
+    if (inputs.anthropicApiKey) process.env.ANTHROPIC_API_KEY = inputs.anthropicApiKey
+
+    const github = githubClient || new OctokitGitHubClient(ghToken)
     const slack =
       slackClient || (inputs.slackBotToken ? new HttpSlackClient(inputs.slackBotToken) : null)
 
@@ -295,7 +307,7 @@ async function handleAutoFix(
   inputs: ActionInputs
 ): Promise<void> {
   await installClaude()
-  const auth = await validateAuth(inputs.mode)
+  const auth = await validateAuth(inputs.mode, inputs.claudeCodeOauthToken, inputs.anthropicApiKey)
   if (!auth) return
 
   // If manual mode, fetch run info to fill in missing context
@@ -665,7 +677,7 @@ async function handleCommand(
   gitOpsParam: GitOperations | undefined,
   inputs: ActionInputs
 ): Promise<void> {
-  const commentBody = process.env.CI_ASSISTANT_COMMENT_BODY || ""
+  const commentBody = inputs.commentBody
   const prNumber = parseInt(inputs.commentPrNumber) || 0
 
   if (!prNumber) {
@@ -907,7 +919,7 @@ async function handleExplain(
   botUser: string
 ): Promise<void> {
   await installClaude()
-  const auth = await validateAuth(inputs.mode)
+  const auth = await validateAuth(inputs.mode, inputs.claudeCodeOauthToken, inputs.anthropicApiKey)
   if (!auth) return
 
   const model = meta.modelOverride || inputs.model
@@ -986,7 +998,7 @@ async function handleFixCommand(
   botUser: string
 ): Promise<void> {
   await installClaude()
-  const auth = await validateAuth(inputs.mode)
+  const auth = await validateAuth(inputs.mode, inputs.claudeCodeOauthToken, inputs.anthropicApiKey)
   if (!auth) return
 
   // Get previous suggestions and conversation history

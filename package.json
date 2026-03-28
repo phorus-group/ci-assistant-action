@@ -9,7 +9,7 @@
   "scripts": {
     "prepare": "husky",
     "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/index.js --sourcemap",
-    "lint": "eslint **/*.ts --no-error-on-unmatched-pattern",
+    "lint": "tsc --noEmit && eslint **/*.ts --no-error-on-unmatched-pattern",
     "lint:fix": "eslint **/*.ts --fix --no-error-on-unmatched-pattern",
     "test": "jest --ci"
   },

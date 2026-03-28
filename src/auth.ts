@@ -7,13 +7,14 @@ export interface AuthResult {
   token: string
 }
 
-export async function validateAuth(mode: Mode): Promise<AuthResult | null> {
+export async function validateAuth(
+  mode: Mode,
+  oauthToken: string = "",
+  apiKey: string = ""
+): Promise<AuthResult | null> {
   if (mode === Mode.CLEANUP) {
     return null
   }
-
-  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN || ""
-  const apiKey = process.env.ANTHROPIC_API_KEY || ""
 
   if (oauthToken) {
     const valid = await testOAuthToken(oauthToken)

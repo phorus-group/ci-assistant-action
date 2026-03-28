@@ -130,6 +130,10 @@ export interface ActionInputs {
   suggestPrompt: string
   explainPrompt: string
   confidencePrompt: string
+  githubToken: string
+  claudeCodeOauthToken: string
+  anthropicApiKey: string
+  commentBody: string
 }
 
 export interface SlackBlock {

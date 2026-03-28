@@ -61,13 +61,35 @@ export interface RunInfo {
   repository: { full_name: string }
 }
 
+type OctokitClient = ReturnType<typeof github.getOctokit>
+
+interface OctokitComment {
+  id: number
+  body?: string | null
+  user?: { login?: string; type?: string } | null
+}
+
+interface OctokitPR {
+  number: number
+  state: string
+  head: { ref: string; sha: string }
+  base: { ref: string }
+}
+
+interface OctokitJob {
+  conclusion: string | null
+}
+
+interface OctokitRef {
+  ref: string
+}
+
 export class OctokitGitHubClient implements GitHubClient {
-  private octokit: ReturnType<typeof github.getOctokit>
+  private octokit: OctokitClient
   private owner: string
   private repo: string
 
-  constructor() {
-    const token = process.env.GH_TOKEN || ""
+  constructor(token: string = "") {
     this.octokit = github.getOctokit(token)
     const [owner, repo] = (process.env.GITHUB_REPOSITORY || "").split("/")
     this.owner = owner
@@ -81,7 +103,7 @@ export class OctokitGitHubClient implements GitHubClient {
       issue_number: prNumber,
       per_page: 100,
     })
-    return data.map((c) => ({
+    return data.map((c: OctokitComment) => ({
       id: c.id,
       body: c.body || "",
       user: { login: c.user?.login || "", type: c.user?.type || "" },
@@ -162,7 +184,7 @@ export class OctokitGitHubClient implements GitHubClient {
       base: params.base,
       state: (params.state as "open" | "closed" | "all") || "open",
     })
-    return data.map((pr) => ({
+    return data.map((pr: OctokitPR) => ({
       number: pr.number,
       state: pr.state,
       head: { ref: pr.head.ref, sha: pr.head.sha },
@@ -179,7 +201,7 @@ export class OctokitGitHubClient implements GitHubClient {
         filter: "latest",
       })
 
-      const failedJobs = data.jobs.filter((j) => j.conclusion === "failure")
+      const failedJobs = data.jobs.filter((j: OctokitJob) => j.conclusion === "failure")
       if (failedJobs.length === 0) {
         return "No failed jobs found in the workflow run."
       }
@@ -241,7 +263,7 @@ export class OctokitGitHubClient implements GitHubClient {
         repo: this.repo,
         ref: prefix,
       })
-      return data.map((r) => r.ref)
+      return data.map((r: OctokitRef) => r.ref)
     } catch {
       return []
     }

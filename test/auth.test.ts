@@ -39,7 +39,6 @@ describe("validateAuth", () => {
   })
 
   it("uses OAuth token when valid", async () => {
-    process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-test"
     // testOAuthToken uses exec.exec with listeners.stdout
     ;(exec.exec as jest.Mock).mockImplementationOnce(
       async (
@@ -54,47 +53,37 @@ describe("validateAuth", () => {
       }
     )
 
-    const result = await validateAuth(Mode.AUTO_FIX)
+    const result = await validateAuth(Mode.AUTO_FIX, "sk-ant-oat01-test")
     expect(result).toEqual({ method: "oauth", token: "sk-ant-oat01-test" })
     expect(core.warning).not.toHaveBeenCalled()
   })
 
   it("falls back to API key when OAuth expired", async () => {
-    process.env.CLAUDE_CODE_OAUTH_TOKEN = "expired-token"
-    process.env.ANTHROPIC_API_KEY = "sk-test-api-key"
     ;(exec.getExecOutput as jest.Mock).mockRejectedValueOnce(new Error("401 Unauthorized"))
 
-    const result = await validateAuth(Mode.AUTO_FIX)
+    const result = await validateAuth(Mode.AUTO_FIX, "expired-token", "sk-test-api-key")
     expect(result).toEqual({ method: "api-key", token: "sk-test-api-key" })
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("expired"))
     expect(core.summary.addRaw).toHaveBeenCalledWith(expect.stringContaining("expired"))
   })
 
   it("fails when OAuth expired and no API key", async () => {
-    process.env.CLAUDE_CODE_OAUTH_TOKEN = "expired-token"
-    delete process.env.ANTHROPIC_API_KEY
     ;(exec.getExecOutput as jest.Mock).mockRejectedValueOnce(new Error("401 Unauthorized"))
 
-    const result = await validateAuth(Mode.AUTO_FIX)
+    const result = await validateAuth(Mode.AUTO_FIX, "expired-token")
     expect(result).toBeNull()
     expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining("expired"))
     expect(core.summary.addRaw).toHaveBeenCalled()
   })
 
   it("uses API key with warning when no OAuth token", async () => {
-    delete process.env.CLAUDE_CODE_OAUTH_TOKEN
-    process.env.ANTHROPIC_API_KEY = "sk-test-api-key"
-
-    const result = await validateAuth(Mode.AUTO_FIX)
+    const result = await validateAuth(Mode.AUTO_FIX, "", "sk-test-api-key")
     expect(result).toEqual({ method: "api-key", token: "sk-test-api-key" })
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("pay-per-use"))
     expect(core.summary.addRaw).toHaveBeenCalledWith(expect.stringContaining("setup-token"))
   })
 
   it("fails when neither token is set", async () => {
-    delete process.env.CLAUDE_CODE_OAUTH_TOKEN
-    delete process.env.ANTHROPIC_API_KEY
-
     const result = await validateAuth(Mode.AUTO_FIX)
     expect(result).toBeNull()
     expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining("No Claude authentication"))
