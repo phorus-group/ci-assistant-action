@@ -298,39 +298,6 @@ async function handleCleanup(
     }
   }
 
-  // Reset state on regular PRs whose pipeline now passes.
-  // When failedBranch is set, only check PRs on that branch.
-  // When empty (schedule), scan all open PRs with CI Assistant state.
-  const regularPrs: PR[] = []
-
-  if (inputs.failedBranch) {
-    const prs = await github.listPRs({ head: inputs.failedBranch, state: "open" })
-    regularPrs.push(...prs.filter((pr) => !pr.head.ref.startsWith("ci-assistant/")))
-  } else {
-    const allOpenPrs = await github.listPRs({ state: "open" })
-    regularPrs.push(...allOpenPrs.filter((pr) => !pr.head.ref.startsWith("ci-assistant/")))
-  }
-
-  for (const pr of regularPrs) {
-    const { meta, commentId } = await readMeta(github, pr.number, botUser)
-    if (meta.state === State.NONE) continue
-
-    const shouldReset = inputs.failedBranch
-      ? true
-      : (await github.getBranchLatestConclusion(pr.head.ref)) === "success"
-
-    if (!shouldReset) continue
-
-    meta.state = State.NONE
-    meta.gaveUp = false
-    await writeMeta(github, pr.number, meta, commentId)
-    await github.createComment(
-      pr.number,
-      "CI Assistant state reset. The pipeline is now passing and the previous analysis is no longer relevant."
-    )
-    core.info(`Reset state to NONE for PR #${pr.number} (pipeline passed)`)
-  }
-
   // Clean up orphaned refs
   const cleaned = await cleanupOrphanedRefs(github)
   core.info(`Cleaned up ${cleaned} orphaned refs`)

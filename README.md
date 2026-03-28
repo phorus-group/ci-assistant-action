@@ -31,7 +31,7 @@ Interact through PR comment commands to accept, refine, or request alternative f
   - [Tag failure](#tag-failure)
   - [On-demand assistance (suggest)](#on-demand-assistance-suggest)
   - [Manual trigger (workflow_dispatch)](#manual-trigger-workflow_dispatch)
-  - [Auto-cleanup](#auto-cleanup)
+  - [Cleanup](#cleanup)
 - [Retry loop and fix selection](#retry-loop-and-fix-selection)
   - [Retry behavior](#retry-behavior)
   - [Fix selection ranking](#fix-selection-ranking)
@@ -205,7 +205,7 @@ GitHub Apps are free (no seat cost). The app identity shows on all comments and 
 - State reset on new commit to keep limits fresh while preserving anti-abuse totals
 - Works with Claude OAuth token or API key, with automatic fallback
 - Custom bot identity via GitHub App at no additional cost
-- Auto-cleanup of stale `ci-assistant/` PRs, orphaned refs, and regular PR state
+- Scheduled cleanup of stale `ci-assistant/` PRs and orphaned refs
 - Tag failure handling with automatic source branch resolution
 - Fork safety and bot comment filtering to prevent infinite loops
 - Multiple operating modes: `auto-fix`, `command`, `manual`, `cleanup`
@@ -258,7 +258,7 @@ When a branch like `main` or `release/1.0` fails and has no open PR, the action 
 3. If the same branch fails again later (existing `ci-assistant/` PR): subsequent fixes are posted as comments on the existing PR, stored as refs, and require `/ci-assistant accept` to apply.
 4. If Claude **cannot produce a code fix** (non-code issue or gave up): no PR is created. A branch with no code changes serves no purpose. The analysis is reported via Slack only.
 
-When the base branch pipeline passes, the auto-cleanup job closes the `ci-assistant/` PR, deletes the branch, and cleans up all fix refs for that PR.
+When the base branch pipeline recovers, the scheduled cleanup closes the `ci-assistant/` PR, deletes the branch, and cleans up all fix refs for that PR.
 
 </details>
 
@@ -307,9 +307,10 @@ Cleanup runs in two ways: orphaned ref cleanup runs at the start of every CI Ass
 
 **Scheduled (weekly):** full cleanup runs via the `schedule` trigger. This handles:
 
-1. **Closes stale `ci-assistant/` PRs**: finds open PRs with head branch `ci-assistant/<branch>` where `<branch>` has recovered. For each: posts a closing comment, closes the PR, deletes the `ci-assistant/<branch>` branch (via `refs/heads/`), and deletes all fix refs (`refs/ci-assistant/<pr>/`). Updates Slack if a prior message exists.
-2. **Resets state on regular PRs**: finds open PRs with meta comment state that is not `none` and resets it.
-3. **Cleans up orphaned refs**: scans all `refs/ci-assistant/<pr>/` refs, checks whether each PR is closed or merged, and deletes refs for closed PRs.
+1. **Closes stale `ci-assistant/` PRs**: finds open PRs with head branch `ci-assistant/<branch>` and checks if the base branch pipeline is now passing. For each recovered branch: posts a closing comment, closes the PR, deletes the `ci-assistant/<branch>` branch (via `refs/heads/`), and deletes all fix refs (`refs/ci-assistant/<pr>/`). Updates Slack if a prior message exists.
+2. **Cleans up orphaned refs**: scans all `refs/ci-assistant/<pr>/` refs, checks whether each PR is closed or merged, and deletes refs for closed PRs.
+
+CI Assistant state on regular PRs (meta comments) is not reset during cleanup. State freshness is handled by the auto-fix flow, which resets per-command counters and fix history when a new commit is detected.
 
 </details>
 
@@ -452,10 +453,9 @@ Admin commands do not count toward the total command limit. Commands that do not
 | `non-code` | retry/suggest (no fix) | Claude failed | `gave-up` |
 | `gave-up` | retry/suggest (fix) | Code fix found | `active` |
 | `gave-up` | retry/suggest (no fix) | Still failed | `gave-up` |
-| Any | pipeline passes (cleanup) | Base branch recovered | `none` |
 | Any | admin reset-state | Admin action | `none` |
 
-CI Assistant stays present on the PR after any command. State only resets to `none` via auto-cleanup (pipeline passes) or admin reset.
+CI Assistant stays present on the PR after any command. State only resets to `none` via admin reset or when a new commit triggers the SHA-based reset in the auto-fix flow.
 
 ### State reset on new commit
 
@@ -856,7 +856,7 @@ If the cherry-pick fails (e.g., the branch has moved forward since the fix was s
 ### Ref cleanup
 
 Refs are cleaned up in three situations:
-1. **Auto-cleanup closes a ci-assistant PR**: all `refs/ci-assistant/<pr>/` refs are deleted
+1. **Cleanup closes a ci-assistant PR**: all `refs/ci-assistant/<pr>/` refs are deleted
 2. **Orphaned ref scan**: during every cleanup run, refs for closed/merged PRs are found and deleted
 3. **State reset on new commit**: the `meta.fixes` array is cleared, but the refs themselves remain until cleanup runs
 

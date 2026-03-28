@@ -1169,57 +1169,6 @@ describe("Integration Tests", () => {
       const pr = await github.getPR(202)
       expect(pr.state).toBe("open")
     })
-
-    it("scheduled cleanup resets state on regular PRs when pipeline passes", async () => {
-      github.addPR({
-        number: 203,
-        state: "open",
-        head: { ref: "feature-y", sha: "abc123" },
-        base: { ref: "main" },
-      })
-      github.branchConclusions.set("feature-y", "success")
-
-      const meta = { ...DEFAULT_META, state: State.ACTIVE }
-      await writeMeta(github, 203, meta, null)
-
-      cleanupInputs()
-      cleanupInputs = setupDefaultInputs({
-        mode: "cleanup",
-        "failed-branch": "",
-      })
-
-      await run(github, slack, claude, git)
-
-      const { meta: updatedMeta } = await readMeta(github, 203, "github-actions[bot]")
-      expect(updatedMeta.state).toBe("none")
-
-      const comments = github.getCommentsForPR(203)
-      expect(comments.some((c) => c.body.includes("state reset"))).toBe(true)
-    })
-
-    it("scheduled cleanup skips regular PRs when pipeline still fails", async () => {
-      github.addPR({
-        number: 204,
-        state: "open",
-        head: { ref: "feature-z", sha: "abc123" },
-        base: { ref: "main" },
-      })
-      github.branchConclusions.set("feature-z", "failure")
-
-      const meta = { ...DEFAULT_META, state: State.ACTIVE }
-      await writeMeta(github, 204, meta, null)
-
-      cleanupInputs()
-      cleanupInputs = setupDefaultInputs({
-        mode: "cleanup",
-        "failed-branch": "",
-      })
-
-      await run(github, slack, claude, git)
-
-      const { meta: updatedMeta } = await readMeta(github, 204, "github-actions[bot]")
-      expect(updatedMeta.state).toBe("active")
-    })
   })
 
   describe("Slack integration", () => {
@@ -3047,9 +2996,8 @@ describe("Integration Tests", () => {
     })
   })
 
-  describe("Scenario: Cleanup resets state on regular PRs", () => {
-    it("regular PR state resets to NONE when pipeline passes", async () => {
-      // Regular PR (not ci-assistant) with active state from previous failure
+  describe("Scenario: Cleanup preserves state on regular PRs", () => {
+    it("cleanup does not reset state on regular PRs", async () => {
       github.addPR({
         number: 600,
         state: "open",
@@ -3074,15 +3022,11 @@ describe("Integration Tests", () => {
 
       await run(github, slack, claude, git)
 
-      // PR should still be open (not a ci-assistant PR)
       const pr = await github.getPR(600)
       expect(pr.state).toBe("open")
 
-      // State should be reset to NONE
       const { meta: after } = await readMeta(github, 600, "github-actions[bot]")
-      expect(after.state).toBe(State.NONE)
-      expect(after.gaveUp).toBe(false)
-      // totalCt preserved
+      expect(after.state).toBe(State.ACTIVE)
       expect(after.totalCt).toBe(5)
     })
   })
