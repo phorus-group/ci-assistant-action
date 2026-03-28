@@ -119,15 +119,37 @@ A quick walkthrough of what CI Assistant can do. Each scenario links to a deeper
 
 ### Quick start with the reusable workflow
 
-Create `.github/workflows/ci-assistant.yml` in your repository:
+CI Assistant is set up with two workflow files. The first adds a `ci-assistant` job to your existing default workflow so it runs automatically when the pipeline fails. The second handles interactive commands, scheduled cleanup, and manual triggers.
+
+**1. Add to your default workflow** (`.github/workflows/default.yml`):
+
+```yaml
+jobs:
+  default-workflow:
+    uses: phorus-group/workflows/.github/workflows/back.lib.gradle.yml@main
+    # ... your existing inputs and secrets ...
+
+  ci-assistant:
+    needs: [default-workflow]
+    if: ${{ failure() }}
+    uses: phorus-group/workflows/.github/workflows/ci-assistant.yml@main
+    with:
+      java-version: "21"
+      slack-failure-channel: "YOUR_CHANNEL_ID"
+      admin-users: "your-username"
+    secrets:
+      claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+      # Optional: GitHub App for custom bot identity
+      # github-app-private-key: ${{ secrets.CI_ASSISTANT_PRIVATE_KEY }}
+```
+
+**2. Create `.github/workflows/ci-assistant.yml`** for commands, cleanup, and manual triggers:
 
 ```yaml
 name: "CI Assistant"
 
 on:
-  workflow_run:
-    workflows: ["Default Workflow"]
-    types: [completed]
   issue_comment:
     types: [created]
   schedule:
@@ -148,13 +170,11 @@ jobs:
     secrets:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
-      # Optional: GitHub App for custom bot identity
-      # github-app-private-key: ${{ secrets.CI_ASSISTANT_PRIVATE_KEY }}
 ```
 
-The `workflow_run` trigger must exist on the default branch to activate. The `schedule` trigger runs weekly cleanup of orphaned refs and stale PRs.
-
 Set `java-version` or `node-version` so Claude can reproduce errors and run your project's tests. Leave both out if your project needs neither. See the [reusable workflow inputs](https://github.com/phorus-group/workflows) for all available options.
+
+> **Note:** Using a standalone `workflow_run` trigger (`types: [completed]`) instead of embedding in the default workflow also works but creates a visible skipped workflow run on every successful pipeline. The embedded approach avoids this.
 
 ### Quick start standalone
 
@@ -1005,25 +1025,12 @@ This ensures:
 
 ### Gradle project
 
+Add to your `default.yml`:
+
 ```yaml
-name: "CI Assistant"
-
-on:
-  workflow_run:
-    workflows: ["Default Workflow"]
-    types: [completed]
-  issue_comment:
-    types: [created]
-  schedule:
-    - cron: "0 6 * * 1"
-  workflow_dispatch:
-    inputs:
-      run-id:
-        description: "Failed run ID to analyze"
-        required: true
-
-jobs:
   ci-assistant:
+    needs: [default-workflow]
+    if: ${{ failure() }}
     uses: phorus-group/workflows/.github/workflows/ci-assistant.yml@main
     with:
       java-version: "21"
@@ -1036,20 +1043,12 @@ jobs:
 
 ### Node project
 
+Add to your `default.yml`:
+
 ```yaml
-name: "CI Assistant"
-
-on:
-  workflow_run:
-    workflows: ["Build"]
-    types: [completed]
-  issue_comment:
-    types: [created]
-  schedule:
-    - cron: "0 6 * * 1"
-
-jobs:
   ci-assistant:
+    needs: [default-workflow]
+    if: ${{ failure() }}
     uses: phorus-group/workflows/.github/workflows/ci-assistant.yml@main
     with:
       node-version: "20"
@@ -1060,7 +1059,7 @@ jobs:
 
 ### Custom workflow (no reusable workflow)
 
-For full control, call the action directly. This example includes all four triggers (failure, comment, schedule, manual), concurrency handling, and fork/bot safety:
+For full control, call the action directly. This standalone example uses `workflow_run` to trigger on pipeline failures. For the recommended approach of embedding CI Assistant as a job in your default workflow, see the [quick start](#quick-start-with-the-reusable-workflow) section.
 
 ```yaml
 name: "CI Assistant"
