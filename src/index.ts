@@ -226,80 +226,108 @@ async function handleCleanup(
 ): Promise<void> {
   core.info("Running cleanup...")
 
-  // Close ci-assistant PRs for the branch
   const botUser = await github.getAuthenticatedUser()
+
+  // Determine which ci-assistant branches to check.
+  // When failedBranch is set (workflow_run trigger), only check that branch.
+  // When empty (schedule trigger), scan all open ci-assistant PRs.
+  const ciAssistantPrs: { pr: PR; baseBranch: string }[] = []
 
   if (inputs.failedBranch) {
     const ciAssistantBranch = `ci-assistant/${inputs.failedBranch}`
-    const prs = await github.listPRs({
-      head: ciAssistantBranch,
-      state: "open",
-    })
-
+    const prs = await github.listPRs({ head: ciAssistantBranch, state: "open" })
     for (const pr of prs) {
-      core.info(`Closing ci-assistant PR #${pr.number}`)
-      await github.createComment(
-        pr.number,
-        "Base branch pipeline now passes. Closing this CI Assistant fix PR."
-      )
-      await github.closePR(pr.number)
-
-      // Delete the ci-assistant branch
-      try {
-        await github.deleteRef(`refs/heads/${ciAssistantBranch}`)
-        core.info(`Deleted branch ${ciAssistantBranch}`)
-      } catch {
-        core.warning(`Could not delete branch ${ciAssistantBranch}`)
-      }
-
-      // Delete all fix refs for this PR
-      const prRefs = await github.listRefs(`ci-assistant/${pr.number}/`)
-      for (const ref of prRefs) {
-        try {
-          await github.deleteRef(ref)
-        } catch {
-          core.warning(`Could not delete ref ${ref}`)
-        }
-      }
-      if (prRefs.length > 0) {
-        core.info(`Deleted ${prRefs.length} fix refs for PR #${pr.number}`)
-      }
-
-      // Update Slack if we have the meta
-      if (slack && inputs.slackFailureChannel) {
-        const { meta } = await readMeta(github, pr.number, botUser)
-        if (meta.slackTs) {
-          const { blocks, text } = buildStatusUpdateBlocks({
-            repo: process.env.GITHUB_REPOSITORY || "",
-            branch: inputs.failedBranch,
-            status: "Auto-closed (base branch recovered)",
-            meta,
-            prUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/pull/${pr.number}`,
-          })
-          await slack.updateMessage(inputs.slackFailureChannel, meta.slackTs, blocks, text)
-        }
+      ciAssistantPrs.push({ pr, baseBranch: inputs.failedBranch })
+    }
+  } else {
+    const allOpenPrs = await github.listPRs({ state: "open" })
+    for (const pr of allOpenPrs) {
+      if (pr.head.ref.startsWith("ci-assistant/")) {
+        ciAssistantPrs.push({ pr, baseBranch: pr.base.ref })
       }
     }
   }
 
-  // Reset state on regular PRs when their pipeline passes
-  if (inputs.failedBranch) {
-    const regularPrs = await github.listPRs({
-      head: inputs.failedBranch,
-      state: "open",
-    })
+  // Close ci-assistant PRs whose base branch pipeline now passes
+  for (const { pr, baseBranch } of ciAssistantPrs) {
+    const shouldClose = inputs.failedBranch
+      ? true
+      : (await github.getBranchLatestConclusion(baseBranch)) === "success"
 
-    for (const pr of regularPrs) {
-      if (pr.head.ref.startsWith("ci-assistant/")) continue
+    if (!shouldClose) continue
 
-      const { meta, commentId } = await readMeta(github, pr.number, botUser)
-      if (meta.state !== State.NONE) {
-        meta.state = State.NONE
-        meta.gaveUp = false
-        await writeMeta(github, pr.number, meta, commentId)
-        core.info(`Reset state to NONE for PR #${pr.number} (pipeline passed)`)
+    core.info(`Closing ci-assistant PR #${pr.number} (${baseBranch} pipeline recovered)`)
+    await github.createComment(
+      pr.number,
+      `Closing this PR because the \`${baseBranch}\` pipeline is now passing. The fix is no longer needed.`
+    )
+    await github.closePR(pr.number)
+
+    try {
+      await github.deleteRef(`refs/heads/${pr.head.ref}`)
+      core.info(`Deleted branch ${pr.head.ref}`)
+    } catch {
+      core.warning(`Could not delete branch ${pr.head.ref}`)
+    }
+
+    const prRefs = await github.listRefs(`ci-assistant/${pr.number}/`)
+    for (const ref of prRefs) {
+      try {
+        await github.deleteRef(ref)
+      } catch {
+        core.warning(`Could not delete ref ${ref}`)
       }
     }
+    if (prRefs.length > 0) {
+      core.info(`Deleted ${prRefs.length} fix refs for PR #${pr.number}`)
+    }
+
+    if (slack && inputs.slackFailureChannel) {
+      const { meta } = await readMeta(github, pr.number, botUser)
+      if (meta.slackTs) {
+        const { blocks, text } = buildStatusUpdateBlocks({
+          repo: process.env.GITHUB_REPOSITORY || "",
+          branch: baseBranch,
+          status: "Auto-closed (base branch recovered)",
+          meta,
+          prUrl: `https://github.com/${process.env.GITHUB_REPOSITORY}/pull/${pr.number}`,
+        })
+        await slack.updateMessage(inputs.slackFailureChannel, meta.slackTs, blocks, text)
+      }
+    }
+  }
+
+  // Reset state on regular PRs whose pipeline now passes.
+  // When failedBranch is set, only check PRs on that branch.
+  // When empty (schedule), scan all open PRs with CI Assistant state.
+  const regularPrs: PR[] = []
+
+  if (inputs.failedBranch) {
+    const prs = await github.listPRs({ head: inputs.failedBranch, state: "open" })
+    regularPrs.push(...prs.filter((pr) => !pr.head.ref.startsWith("ci-assistant/")))
+  } else {
+    const allOpenPrs = await github.listPRs({ state: "open" })
+    regularPrs.push(...allOpenPrs.filter((pr) => !pr.head.ref.startsWith("ci-assistant/")))
+  }
+
+  for (const pr of regularPrs) {
+    const { meta, commentId } = await readMeta(github, pr.number, botUser)
+    if (meta.state === State.NONE) continue
+
+    const shouldReset = inputs.failedBranch
+      ? true
+      : (await github.getBranchLatestConclusion(pr.head.ref)) === "success"
+
+    if (!shouldReset) continue
+
+    meta.state = State.NONE
+    meta.gaveUp = false
+    await writeMeta(github, pr.number, meta, commentId)
+    await github.createComment(
+      pr.number,
+      "CI Assistant state reset. The pipeline is now passing and the previous analysis is no longer relevant."
+    )
+    core.info(`Reset state to NONE for PR #${pr.number} (pipeline passed)`)
   }
 
   // Clean up orphaned refs

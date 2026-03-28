@@ -12,6 +12,7 @@ export class MockGitHubClient implements GitHubClient {
   authenticatedUser = "github-actions[bot]"
   tags: Set<string> = new Set()
   deletedRefs: string[] = []
+  branchConclusions: Map<string, string> = new Map()
 
   private nextCommentId = 1
   private nextPrNumber = 100
@@ -133,6 +134,10 @@ export class MockGitHubClient implements GitHubClient {
 
   async isTag(ref: string): Promise<boolean> {
     return this.tags.has(ref)
+  }
+
+  async getBranchLatestConclusion(branch: string): Promise<string | null> {
+    return this.branchConclusions.get(branch) ?? null
   }
 
   getCommentsForPR(prNumber: number): PRComment[] {

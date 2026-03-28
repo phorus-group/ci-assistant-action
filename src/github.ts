@@ -25,6 +25,7 @@ export interface GitHubClient {
   listRefs(prefix: string): Promise<string[]>
   deleteRef(ref: string): Promise<void>
   isTag(ref: string): Promise<boolean>
+  getBranchLatestConclusion(branch: string): Promise<string | null>
 }
 
 export interface PRComment {
@@ -287,6 +288,22 @@ export class OctokitGitHubClient implements GitHubClient {
       return true
     } catch {
       return false
+    }
+  }
+
+  async getBranchLatestConclusion(branch: string): Promise<string | null> {
+    try {
+      const { data } = await this.octokit.rest.actions.listWorkflowRunsForRepo({
+        owner: this.owner,
+        repo: this.repo,
+        branch,
+        per_page: 1,
+        status: "completed" as const,
+      })
+      if (data.workflow_runs.length === 0) return null
+      return (data.workflow_runs[0] as { conclusion: string | null }).conclusion
+    } catch {
+      return null
     }
   }
 }

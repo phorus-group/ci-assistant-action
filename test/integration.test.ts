@@ -1117,11 +1117,108 @@ describe("Integration Tests", () => {
       expect(pr.state).toBe("closed")
 
       const comments = github.getCommentsForPR(200)
-      const closeComment = comments.find((c) => c.body.includes("Base branch pipeline now passes"))
-      expect(closeComment).toBeDefined()
+      expect(comments.some((c) => c.body.includes("pipeline is now passing"))).toBe(true)
 
-      // Slack updated
       expect(slack.updates.length).toBeGreaterThan(0)
+    })
+
+    it("scheduled cleanup closes ci-assistant PRs when base branch passes", async () => {
+      github.addPR({
+        number: 201,
+        state: "open",
+        head: { ref: "ci-assistant/feature-x", sha: "fix-sha" },
+        base: { ref: "feature-x" },
+      })
+      github.branchConclusions.set("feature-x", "success")
+
+      const meta = { ...DEFAULT_META, state: State.ACTIVE }
+      await writeMeta(github, 201, meta, null)
+
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({
+        mode: "cleanup",
+        "failed-branch": "",
+      })
+
+      await run(github, slack, claude, git)
+
+      const pr = await github.getPR(201)
+      expect(pr.state).toBe("closed")
+
+      const comments = github.getCommentsForPR(201)
+      expect(comments.some((c) => c.body.includes("pipeline is now passing"))).toBe(true)
+    })
+
+    it("scheduled cleanup skips ci-assistant PRs when base branch still fails", async () => {
+      github.addPR({
+        number: 202,
+        state: "open",
+        head: { ref: "ci-assistant/broken", sha: "fix-sha" },
+        base: { ref: "broken" },
+      })
+      github.branchConclusions.set("broken", "failure")
+
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({
+        mode: "cleanup",
+        "failed-branch": "",
+      })
+
+      await run(github, slack, claude, git)
+
+      const pr = await github.getPR(202)
+      expect(pr.state).toBe("open")
+    })
+
+    it("scheduled cleanup resets state on regular PRs when pipeline passes", async () => {
+      github.addPR({
+        number: 203,
+        state: "open",
+        head: { ref: "feature-y", sha: "abc123" },
+        base: { ref: "main" },
+      })
+      github.branchConclusions.set("feature-y", "success")
+
+      const meta = { ...DEFAULT_META, state: State.ACTIVE }
+      await writeMeta(github, 203, meta, null)
+
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({
+        mode: "cleanup",
+        "failed-branch": "",
+      })
+
+      await run(github, slack, claude, git)
+
+      const { meta: updatedMeta } = await readMeta(github, 203, "github-actions[bot]")
+      expect(updatedMeta.state).toBe("none")
+
+      const comments = github.getCommentsForPR(203)
+      expect(comments.some((c) => c.body.includes("state reset"))).toBe(true)
+    })
+
+    it("scheduled cleanup skips regular PRs when pipeline still fails", async () => {
+      github.addPR({
+        number: 204,
+        state: "open",
+        head: { ref: "feature-z", sha: "abc123" },
+        base: { ref: "main" },
+      })
+      github.branchConclusions.set("feature-z", "failure")
+
+      const meta = { ...DEFAULT_META, state: State.ACTIVE }
+      await writeMeta(github, 204, meta, null)
+
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({
+        mode: "cleanup",
+        "failed-branch": "",
+      })
+
+      await run(github, slack, claude, git)
+
+      const { meta: updatedMeta } = await readMeta(github, 204, "github-actions[bot]")
+      expect(updatedMeta.state).toBe("active")
     })
   })
 
@@ -2118,8 +2215,7 @@ describe("Integration Tests", () => {
 
       // Closing comment posted
       const comments = github.getCommentsForPR(300)
-      const closeComment = comments.find((c) => c.body.includes("Base branch pipeline now passes"))
-      expect(closeComment).toBeDefined()
+      expect(comments.some((c) => c.body.includes("pipeline is now passing"))).toBe(true)
 
       // Slack updated
       expect(slack.updates.length).toBeGreaterThan(0)
