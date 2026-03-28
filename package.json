@@ -1,6 +1,6 @@
 {
   "name": "ci-assistant-action",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "GitHub Action that analyzes CI/CD pipeline failures using Claude Code, suggests fixes via PR comments, and posts summaries to Slack. Also works as on-demand code assistance via /ci-assistant suggest, even without pipeline failures.",
   "main": "dist/index.js",
   "engines": {
@@ -35,7 +35,7 @@
   "lint-staged": {
     "*.ts": [
       "eslint --fix",
-      "jest --bail --findRelatedTests"
+      "jest --bail --passWithNoTests --findRelatedTests"
     ]
   },
   "dependencies": {

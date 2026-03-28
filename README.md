@@ -130,6 +130,8 @@ on:
     types: [completed]
   issue_comment:
     types: [created]
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       run-id:
@@ -147,11 +149,10 @@ jobs:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
       # Optional: GitHub App for custom bot identity
-      # github-app-id: ${{ secrets.CI_ASSISTANT_APP_ID }}
       # github-app-private-key: ${{ secrets.CI_ASSISTANT_PRIVATE_KEY }}
 ```
 
-The `workflow_run` trigger must exist on the default branch to activate. It fires on `completed` because the action handles both failure and success: failure triggers auto-fix, success triggers auto-cleanup.
+The `workflow_run` trigger must exist on the default branch to activate. The `schedule` trigger runs weekly cleanup of orphaned refs and stale PRs.
 
 Set `java-version` or `node-version` so Claude can reproduce errors and run your project's tests. Leave both out if your project needs neither. See the [reusable workflow inputs](https://github.com/phorus-group/workflows) for all available options.
 
@@ -218,7 +219,7 @@ The `mode` input controls which flow the action executes:
 | `auto-fix` | `workflow_run` with `conclusion == 'failure'` | Downloads failure logs, runs Claude, posts fix suggestion |
 | `command` | `issue_comment` starting with `/ci-assistant` | Parses the command, executes it, updates meta |
 | `manual` | `workflow_dispatch` with a run ID | Same as auto-fix but fetches branch/SHA from the provided run ID |
-| `cleanup` | `workflow_run` with `conclusion == 'success'` | Closes stale ci-assistant PRs, cleans orphaned refs, resets PR state |
+| `cleanup` | `schedule` (weekly) | Closes stale ci-assistant PRs, cleans orphaned refs, resets PR state |
 
 `cleanup` mode does not require Claude authentication (only a GitHub token). All other modes install the Claude Code CLI and validate auth before proceeding.
 
@@ -295,15 +296,19 @@ The `manual` mode allows analyzing a specific failed run by ID:
 
 This is useful for re-analyzing failures after the `workflow_run` event has already fired, or for debugging.
 
-### Auto-cleanup
+### Cleanup
 
-Runs when a pipeline succeeds. Closes stale `ci-assistant/` PRs, resets state on regular PRs whose pipeline now passes, and removes orphaned git refs.
+Cleanup runs in two ways: orphaned ref cleanup runs at the start of every CI Assistant invocation, and full cleanup runs on a weekly schedule.
 
 <details>
 <summary>Detailed flow</summary>
 
-1. **Closes stale `ci-assistant/` PRs**: finds open PRs with head branch `ci-assistant/<branch>` where `<branch>` is the branch that just passed. For each: posts a closing comment, closes the PR, deletes the `ci-assistant/<branch>` branch (via `refs/heads/`), and deletes all fix refs (`refs/ci-assistant/<pr>/`). Updates Slack if a prior message exists.
-2. **Resets state on regular PRs**: finds open PRs with head branch matching the branch that passed (excluding ci-assistant branches). If the meta comment has a non-`none` state, resets it to `none`.
+**Per-invocation (automatic):** orphaned refs are cleaned at the start of every auto-fix, command, or manual run. This removes refs for PRs that have been closed or merged.
+
+**Scheduled (weekly):** full cleanup runs via the `schedule` trigger. This handles:
+
+1. **Closes stale `ci-assistant/` PRs**: finds open PRs with head branch `ci-assistant/<branch>` where `<branch>` has recovered. For each: posts a closing comment, closes the PR, deletes the `ci-assistant/<branch>` branch (via `refs/heads/`), and deletes all fix refs (`refs/ci-assistant/<pr>/`). Updates Slack if a prior message exists.
+2. **Resets state on regular PRs**: finds open PRs with meta comment state that is not `none` and resets it.
 3. **Cleans up orphaned refs**: scans all `refs/ci-assistant/<pr>/` refs, checks whether each PR is closed or merged, and deletes refs for closed PRs.
 
 </details>
@@ -1009,6 +1014,8 @@ on:
     types: [completed]
   issue_comment:
     types: [created]
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       run-id:
@@ -1038,6 +1045,8 @@ on:
     types: [completed]
   issue_comment:
     types: [created]
+  schedule:
+    - cron: "0 6 * * 1"
 
 jobs:
   ci-assistant:
@@ -1051,7 +1060,7 @@ jobs:
 
 ### Custom workflow (no reusable workflow)
 
-For full control, call the action directly. This example includes all three triggers (failure, comment, manual), the auto-cleanup job, concurrency handling, and fork/bot safety:
+For full control, call the action directly. This example includes all four triggers (failure, comment, schedule, manual), concurrency handling, and fork/bot safety:
 
 ```yaml
 name: "CI Assistant"
@@ -1062,6 +1071,8 @@ on:
     types: [completed]
   issue_comment:
     types: [created]
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       run-id:
@@ -1073,7 +1084,8 @@ jobs:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.repository.full_name == github.repository) ||
       (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/ci-assistant') && github.event.issue.pull_request && github.event.comment.user.type != 'Bot') ||
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule'
     runs-on: ubuntu-latest
     concurrency:
       group: ci-assistant-${{ github.event.issue.number || github.event.workflow_run.head_branch || 'manual' }}
@@ -1100,6 +1112,9 @@ jobs:
             echo "comment-pr-number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
             PR_SHA=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }} --jq '.head.sha')
             echo "checkout-ref=${PR_SHA}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "mode=cleanup" >> $GITHUB_OUTPUT
+            echo "checkout-ref=" >> $GITHUB_OUTPUT
           else
             echo "mode=manual" >> $GITHUB_OUTPUT
             echo "failed-run-id=${{ inputs.run-id }}" >> $GITHUB_OUTPUT
@@ -1132,20 +1147,6 @@ jobs:
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           comment-body: ${{ github.event.comment.body }}
-
-  auto-cleanup:
-    if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - uses: phorus-group/ci-assistant-action@v1
-        with:
-          mode: cleanup
-          failed-branch: ${{ github.event.workflow_run.head_branch }}
 ```
 
 ## Building and contributing

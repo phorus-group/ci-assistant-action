@@ -192,6 +192,14 @@ export async function run(
     const slack =
       slackClient || (inputs.slackBotToken ? new HttpSlackClient(inputs.slackBotToken) : null)
 
+    // Clean orphaned refs at the start of every invocation.
+    // Full cleanup (closing stale PRs, resetting state) only runs in dedicated
+    // cleanup mode since it requires the pipeline to have passed.
+    if (inputs.mode !== Mode.CLEANUP) {
+      const cleaned = await cleanupOrphanedRefs(github)
+      if (cleaned > 0) core.info(`Cleaned up ${cleaned} orphaned refs`)
+    }
+
     switch (inputs.mode) {
       case Mode.CLEANUP:
         await handleCleanup(github, slack, inputs)
