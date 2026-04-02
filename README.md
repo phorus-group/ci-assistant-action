@@ -659,17 +659,17 @@ Output exactly: CONFIDENCE_PERCENT: <number>
 
 | Placeholder | Description |
 |---|---|
-| `{{FAILURE_LOGS}}` | Downloaded pipeline failure logs (from failed jobs only, truncated to 100KB) |
+| `{{FAILURE_LOGS}}` | Reference to the failure logs file (`.ci-assistant/failure-logs.txt`). Claude reads only the relevant parts instead of processing the entire log. Truncated to 1MB. |
 | `{{FAILURE_LOGS_IF_AVAILABLE}}` | Same as above if a failure triggered this run, empty string otherwise |
 | `{{REPO}}` | Repository full name (`owner/repo`) |
 | `{{BRANCH}}` | Branch name |
 | `{{SHA}}` | Commit SHA |
 | `{{PREVIOUS_ATTEMPTS}}` | Summary of each prior retry attempt: what files were modified and test output |
-| `{{PREVIOUS_SUGGESTIONS}}` | All previous fix suggestions from PR comments, with fix IDs, summaries, and diffs |
+| `{{PREVIOUS_SUGGESTIONS}}` | Reference to the previous suggestions file (`.ci-assistant/previous-suggestions.txt`). Contains all previous fix suggestions with fix IDs, summaries, and diffs. |
 | `{{USER_CONTEXT}}` | Text provided by the user in `/ci-assistant suggest <text>` |
 | `{{USER_PROMPT}}` | Text provided via `-p` in `/ci-assistant explain -p "<text>"`, empty if not provided |
-| `{{LATEST_FIX_DIFF}}` | Diff of the fix being explained (specific fix if `#fix-<id>` given, latest otherwise, empty if no fix exists) |
-| `{{CONVERSATION_HISTORY}}` | All PR comments (from all users, excluding meta), with author attribution. Gives Claude full context of prior analyses, suggestions, explanations, and developer discussions |
+| `{{LATEST_FIX_DIFF}}` | Reference to the fix diff file (`.ci-assistant/fix-diff.txt`). Contains the diff being explained (specific fix if `#fix-<id>` given, latest otherwise). |
+| `{{CONVERSATION_HISTORY}}` | Reference to the conversation history file (`.ci-assistant/conversation-history.txt`). Contains all PR comments with author attribution. |
 | `{{FIX_DIFF}}` | Placeholder for the current fix diff (filled by Claude during confidence analysis) |
 | `{{REPRODUCTION_OUTPUT}}` | Output from Claude's attempt to reproduce the error |
 | `{{POST_FIX_TEST_OUTPUT}}` | Output from running tests after applying the fix |
@@ -982,10 +982,12 @@ The action downloads logs from the GitHub API by listing failed jobs for the wor
 - Only jobs with `conclusion == 'failure'` are included (passing jobs are skipped)
 - Each job's logs are prefixed with `--- Job: <name> ---`
 - If a job's logs can't be downloaded, the section reads `--- Job: <name> (logs unavailable) ---`
-- If total log output exceeds 100KB, the beginning is trimmed and the **last 100KB** is kept (the end of logs is most relevant for diagnosing failures). Prefixed with `[...truncated, showing last 100KB...]`
+- If total log output exceeds 1MB, the beginning is trimmed and the **last 1MB** is kept (the end of logs is most relevant for diagnosing failures). Prefixed with `[...truncated, showing last 1MB...]`
 - If the entire download fails, returns "Failed to download pipeline logs."
 - If no failed jobs are found, returns "No failed jobs found in the workflow run."
 - If no `failed-run-id` is provided, returns "No failure logs available."
+
+Large context (failure logs, previous suggestions, conversation history, fix diffs) is written to files in the `.ci-assistant/` directory instead of being embedded directly in the prompt. The prompt references these files and Claude reads only the relevant parts using its Read and Grep tools. This keeps the prompt small and avoids wasting tokens on content Claude may not need (e.g. thousands of lines of gradle dependency tree output when only a few CVEs matter). The `.ci-assistant/` directory is gitignored so it doesn't appear in captured diffs.
 
 In command mode, if `failed-run-id` is not provided as an input, the action reads `lastRunId` from the meta comment (stored during the initial auto-fix run). The branch and SHA are also populated from the meta comment or from the PR's head ref/sha.
 

@@ -1,7 +1,32 @@
 import * as core from "@actions/core"
 import * as exec from "@actions/exec"
 import { createHash } from "crypto"
+import { mkdirSync, writeFileSync } from "fs"
+import { join } from "path"
 import { ConfidenceResult, ConfidenceStatus, RetryAttempt, ActionInputs } from "./types"
+
+const CONTEXT_DIR = ".ci-assistant"
+
+/**
+ * Writes large context to a file instead of embedding it in the prompt.
+ * Claude Code can read the file with its Read/Grep tools, only loading
+ * the parts it needs instead of processing the entire content upfront.
+ * Returns the file path relative to the working directory.
+ */
+export function writeContextFile(
+  workingDirectory: string,
+  filename: string,
+  content: string
+): string {
+  const dir = join(workingDirectory, CONTEXT_DIR)
+  mkdirSync(dir, { recursive: true })
+  // Gitignore the context dir so it doesn't pollute Claude's diffs
+  const gitignorePath = join(dir, ".gitignore")
+  writeFileSync(gitignorePath, "*\n", "utf-8")
+  const filePath = join(dir, filename)
+  writeFileSync(filePath, content, "utf-8")
+  return join(CONTEXT_DIR, filename)
+}
 
 export interface ClaudeRunner {
   run(prompt: string, model: string, maxTurns: number): Promise<ClaudeResult>
@@ -318,6 +343,18 @@ export async function runWithRetries(
   let totalCacheCreationTokens = 0
   let totalDurationMs = 0
 
+  // Write large context to files so Claude can read only what it needs
+  // instead of processing the entire content in the prompt.
+  const logsRef = failureLogs
+    ? `CI failure logs saved to ${writeContextFile(inputs.workingDirectory, "failure-logs.txt", failureLogs)}. Read the relevant parts to diagnose the issue.`
+    : "No failure logs available."
+  const suggestionsRef = previousSuggestions
+    ? `Previous fix suggestions saved to ${writeContextFile(inputs.workingDirectory, "previous-suggestions.txt", previousSuggestions)}. Read them to avoid repeating the same approaches.`
+    : ""
+  const historyRef = conversationHistory
+    ? `PR conversation history saved to ${writeContextFile(inputs.workingDirectory, "conversation-history.txt", conversationHistory)}. Read it if you need context from prior discussion.`
+    : ""
+
   for (let i = 1; i <= inputs.maxRetries; i++) {
     core.info(`Fix attempt ${i}/${inputs.maxRetries}...`)
 
@@ -330,11 +367,11 @@ export async function runWithRetries(
     // Build prompt
     let prompt: string
     const commonValues = {
-      FAILURE_LOGS: failureLogs,
-      FAILURE_LOGS_IF_AVAILABLE: failureLogs || "",
-      PREVIOUS_SUGGESTIONS: previousSuggestions,
+      FAILURE_LOGS: logsRef,
+      FAILURE_LOGS_IF_AVAILABLE: logsRef,
+      PREVIOUS_SUGGESTIONS: suggestionsRef,
       USER_CONTEXT: userContext,
-      CONVERSATION_HISTORY: conversationHistory || "",
+      CONVERSATION_HISTORY: historyRef,
       REPRODUCTION_OUTPUT: "",
       REPO: process.env.GITHUB_REPOSITORY || "",
       BRANCH: inputs.failedBranch,
@@ -365,11 +402,11 @@ export async function runWithRetries(
     prompt +=
       "\n\n" +
       renderPrompt(inputs.confidencePrompt, {
-        FAILURE_LOGS: failureLogs,
+        FAILURE_LOGS: logsRef,
         REPRODUCTION_OUTPUT: "",
         FIX_DIFF: "{{WILL_BE_FILLED_AFTER_FIX}}",
         POST_FIX_TEST_OUTPUT: "{{WILL_BE_FILLED_AFTER_TESTS}}",
-        PREVIOUS_SUGGESTIONS: previousSuggestions,
+        PREVIOUS_SUGGESTIONS: suggestionsRef,
         USER_CONTEXT: userContext,
       })
 

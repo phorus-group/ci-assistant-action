@@ -46,6 +46,7 @@ import {
   runWithRetries,
   generateFixId,
   renderPrompt,
+  writeContextFile,
   ClaudeRunner,
   GitOperations,
   TotalUsage,
@@ -100,8 +101,7 @@ function getInputs(): ActionInputs {
     commentPrNumber: core.getInput("comment-pr-number") || "",
     autoFixPrompt:
       core.getInput("auto-fix-prompt") ||
-      `Here are the CI pipeline failure logs:
-
+      `CI pipeline failure logs:
 {{FAILURE_LOGS}}
 
 Repository: {{REPO}}
@@ -111,8 +111,7 @@ Commit: {{SHA}}
 Reproduce the error, implement a fix, and verify it works by running the relevant tests.`,
     retryPrompt:
       core.getInput("retry-prompt") ||
-      `Here are the CI pipeline failure logs:
-
+      `CI pipeline failure logs:
 {{FAILURE_LOGS}}
 
 Previous attempts that did not work:
@@ -121,8 +120,7 @@ Previous attempts that did not work:
 Try a fundamentally different approach.`,
     alternativePrompt:
       core.getInput("alternative-prompt") ||
-      `Here are the CI pipeline failure logs:
-
+      `CI pipeline failure logs:
 {{FAILURE_LOGS}}
 
 Previous fixes already suggested (do NOT repeat these):
@@ -988,11 +986,22 @@ async function handleExplain(
     return
   }
 
+  // Write large context to files
+  const logsRef = logs
+    ? `CI failure logs saved to ${writeContextFile(inputs.workingDirectory, "failure-logs.txt", logs)}. Read the relevant parts if needed.`
+    : ""
+  const diffRef = fixDiff
+    ? `Fix diff saved to ${writeContextFile(inputs.workingDirectory, "fix-diff.txt", fixDiff)}. Read it to understand the changes.`
+    : ""
+  const historyRef = conversationHistory
+    ? `PR conversation history saved to ${writeContextFile(inputs.workingDirectory, "conversation-history.txt", conversationHistory)}. Read it if you need context from prior discussion.`
+    : ""
+
   const prompt = renderPrompt(inputs.explainPrompt, {
     USER_PROMPT: parsed.userContext || "",
-    FAILURE_LOGS_IF_AVAILABLE: logs,
-    LATEST_FIX_DIFF: fixDiff ? `\`\`\`diff\n${fixDiff}\n\`\`\`` : "",
-    CONVERSATION_HISTORY: conversationHistory,
+    FAILURE_LOGS_IF_AVAILABLE: logsRef,
+    LATEST_FIX_DIFF: diffRef,
+    CONVERSATION_HISTORY: historyRef,
     REPO: process.env.GITHUB_REPOSITORY || "",
     BRANCH: inputs.failedBranch,
   })

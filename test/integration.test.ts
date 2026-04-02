@@ -11,6 +11,9 @@ import { State, DEFAULT_META, META_MARKER, SUGGESTION_HEADER } from "../src/type
 import { readMeta, writeMeta } from "../src/github"
 import * as core from "@actions/core"
 import * as exec from "@actions/exec"
+import * as fs from "fs"
+import * as os from "os"
+import * as path from "path"
 
 jest.mock("@actions/core", () => ({
   getInput: jest.fn((name: string) => {
@@ -47,10 +50,13 @@ jest.mock("@actions/exec", () => ({
   getExecOutput: jest.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 }),
 }))
 
-function setupDefaultInputs(overrides: Record<string, string> = {}): () => void {
+function setupDefaultInputs(
+  overrides: Record<string, string> = {},
+  workDir: string = "."
+): () => void {
   const defaults: Record<string, string> = {
     mode: "command",
-    "working-directory": ".",
+    "working-directory": workDir,
     "max-turns": "50",
     "max-retries": "3",
     "max-retry-commands": "2",
@@ -99,13 +105,16 @@ describe("Integration Tests", () => {
   let git: MockGitOperations
   let cleanupInputs: () => void
   let cleanupEnv: () => void
+  let tmpDir: string
 
   beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-assistant-test-"))
+
     github = new MockGitHubClient()
     slack = new MockSlackClient()
     claude = new MockClaudeRunner()
     git = new MockGitOperations()
-    cleanupInputs = setupDefaultInputs()
+    cleanupInputs = setupDefaultInputs({}, tmpDir)
     cleanupEnv = setupEnv()
 
     // Setup default PR
@@ -123,6 +132,9 @@ describe("Integration Tests", () => {
     cleanupInputs()
     cleanupEnv()
     jest.restoreAllMocks()
+    if (tmpDir && fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
   })
 
   describe("Auto-fix flow", () => {

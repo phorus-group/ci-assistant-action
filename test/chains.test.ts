@@ -9,6 +9,9 @@ import {
 import { run } from "../src"
 import { readMeta } from "../src/github"
 import { State, SUGGESTION_HEADER } from "../src/types"
+import * as fs from "fs"
+import * as os from "os"
+import * as path from "path"
 
 jest.mock("@actions/core", () => ({
   getInput: jest.fn((name: string) => {
@@ -44,6 +47,7 @@ interface StepContext {
   claude: MockClaudeRunner
   git: MockGitOperations
   cleanups: (() => void)[]
+  tmpDir: string
 }
 
 interface StepExpectations {
@@ -70,7 +74,7 @@ type StepDef = {
 
 function inputs(ctx: StepContext, overrides: Record<string, string>): void {
   const defaults: Record<string, string> = {
-    "working-directory": ".",
+    "working-directory": ctx.tmpDir,
     "max-turns": "50",
     "max-retries": "3",
     "max-retry-commands": "2",
@@ -476,6 +480,7 @@ describe("Chain Integration Tests", () => {
       claude: new MockClaudeRunner(),
       git: new MockGitOperations(),
       cleanups: [],
+      tmpDir: fs.mkdtempSync(path.join(os.tmpdir(), "ci-chain-")),
     }
 
     ctx.github.addPR({
@@ -564,6 +569,9 @@ describe("Chain Integration Tests", () => {
       }
     } finally {
       for (const c of ctx.cleanups) c()
+      if (ctx.tmpDir && fs.existsSync(ctx.tmpDir)) {
+        fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+      }
     }
   })
 })
@@ -601,6 +609,7 @@ describe("Command x State Matrix", () => {
       claude: new MockClaudeRunner(),
       git: new MockGitOperations(),
       cleanups: [],
+      tmpDir: fs.mkdtempSync(path.join(os.tmpdir(), "ci-matrix-")),
     }
 
     ctx.github.addPR({
@@ -672,6 +681,9 @@ describe("Command x State Matrix", () => {
       }
     } finally {
       for (const c of ctx.cleanups) c()
+      if (ctx.tmpDir && fs.existsSync(ctx.tmpDir)) {
+        fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+      }
     }
   })
 })

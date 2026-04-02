@@ -221,9 +221,11 @@ export class OctokitGitHubClient implements GitHubClient {
         }
       }
 
-      const maxLogSize = 100 * 1024
+      // Cap at 1MB since logs are written to a file that Claude reads on demand
+      // (not embedded in the prompt). Claude's Read tool handles large files via offset/limit.
+      const maxLogSize = 1024 * 1024
       if (logs.length > maxLogSize) {
-        logs = "[...truncated, showing last 100KB...]\n" + logs.slice(logs.length - maxLogSize)
+        logs = "[...truncated, showing last 1MB...]\n" + logs.slice(logs.length - maxLogSize)
       }
 
       return logs
