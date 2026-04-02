@@ -150,7 +150,9 @@ export class CliClaudeRunner implements ClaudeRunner {
       cwd: this.workingDirectory,
       silent: true,
     })
-    const diff = diffResult.stdout.trim()
+    // Preserve trailing newline because git apply requires it for valid patch format.
+    // Only strip leading whitespace to avoid "corrupt patch" errors.
+    const diff = diffResult.stdout.replace(/^\s+/, "")
 
     const filesResult = await exec.getExecOutput("git", ["diff", "--staged", "--name-only"], {
       cwd: this.workingDirectory,

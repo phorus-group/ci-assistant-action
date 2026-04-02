@@ -6,6 +6,7 @@ import {
   formatHelpComment,
 } from "../src/commands"
 import { checkForExploitation } from "../src/security"
+import * as exec from "@actions/exec"
 import {
   parseConfidence,
   generateFixId,
@@ -901,6 +902,49 @@ describe("Parametrized: CliClaudeRunner.buildArgs", () => {
     const idx = args.indexOf("--output-format")
     expect(idx).toBeGreaterThan(-1)
     expect(args[idx + 1]).toBe("json")
+  })
+})
+
+// ============================
+// CliClaudeRunner.run diff capture
+// ============================
+describe("Parametrized: CliClaudeRunner.run", () => {
+  const mockGetExecOutput = exec.getExecOutput as jest.Mock
+  const mockExec = exec.exec as jest.Mock
+
+  beforeEach(() => {
+    mockGetExecOutput.mockReset()
+    mockExec.mockReset().mockResolvedValue(0)
+  })
+
+  it("preserves trailing newline in captured diff", async () => {
+    const fakeDiff = "diff --git a/f.ts b/f.ts\n--- a/f.ts\n+++ b/f.ts\n@@ -1 +1 @@\n-old\n+new\n"
+
+    mockGetExecOutput
+      // claude call
+      .mockResolvedValueOnce({ stdout: '{"result":"done"}', stderr: "", exitCode: 0 })
+      // git diff --staged
+      .mockResolvedValueOnce({ stdout: fakeDiff, stderr: "", exitCode: 0 })
+      // git diff --staged --name-only
+      .mockResolvedValueOnce({ stdout: "f.ts\n", stderr: "", exitCode: 0 })
+
+    const runner = new CliClaudeRunner(".")
+    const result = await runner.run("fix", "model", 10)
+
+    expect(result.diff.endsWith("\n")).toBe(true)
+    expect(result.diff).toContain("diff --git")
+  })
+
+  it("returns empty diff when no changes are staged", async () => {
+    mockGetExecOutput
+      .mockResolvedValueOnce({ stdout: '{"result":"no changes needed"}', stderr: "", exitCode: 0 })
+      .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 })
+      .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 })
+
+    const runner = new CliClaudeRunner(".")
+    const result = await runner.run("fix", "model", 10)
+
+    expect(result.diff).toBe("")
   })
 })
 
