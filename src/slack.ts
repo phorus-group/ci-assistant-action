@@ -1,4 +1,4 @@
-import * as core from "@actions/core"
+import { logWarning, LogPrefix } from "./claude"
 import {
   ConfidenceResult,
   CONFIDENCE_STATUS_ICONS,
@@ -53,12 +53,12 @@ export class HttpSlackClient implements SlackClient {
 
       const data = (await response.json()) as { ok: boolean; error?: string; ts?: string }
       if (!data.ok) {
-        core.warning(`Slack postMessage failed: ${data.error}`)
+        logWarning(LogPrefix.SLACK, `postMessage failed: ${data.error}`)
         return null
       }
       return data.ts ?? null
     } catch (error) {
-      core.warning(`Slack postMessage error: ${error}`)
+      logWarning(LogPrefix.SLACK, `postMessage error: ${error}`)
       return null
     }
   }
@@ -86,10 +86,10 @@ export class HttpSlackClient implements SlackClient {
 
       const data = (await response.json()) as { ok: boolean; error?: string; ts?: string }
       if (!data.ok) {
-        core.warning(`Slack updateMessage failed: ${data.error}`)
+        logWarning(LogPrefix.SLACK, `updateMessage failed: ${data.error}`)
       }
     } catch (error) {
-      core.warning(`Slack updateMessage error: ${error}`)
+      logWarning(LogPrefix.SLACK, `updateMessage error: ${error}`)
     }
   }
 }

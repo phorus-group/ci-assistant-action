@@ -7,6 +7,7 @@ import {
   setEnv,
 } from "./mocks"
 import { run } from "../src"
+import { prepareRunContext } from "../src/claude"
 import { State, DEFAULT_META, META_MARKER, SUGGESTION_HEADER } from "../src/types"
 import { readMeta, writeMeta } from "../src/github"
 import * as core from "@actions/core"
@@ -24,6 +25,7 @@ jest.mock("@actions/core", () => ({
   setOutput: jest.fn(),
   info: jest.fn(),
   warning: jest.fn(),
+  error: jest.fn(),
   summary: {
     addRaw: jest.fn().mockReturnThis(),
     write: jest.fn().mockResolvedValue(undefined),
@@ -3131,6 +3133,33 @@ describe("Integration Tests", () => {
       expect(getOutput("outcome")).toBe("non-code")
       expect(getOutput("confidence-status")).toBe("non-code")
       expect(getOutput("confidence-percentage")).toBe("90")
+    })
+  })
+
+  describe("prepareRunContext", () => {
+    it("writes per-job logs and manifest to .ci-assistant/", async () => {
+      github.setLogs(12345, "Error: test failed\nExpected true got false")
+
+      const result = await prepareRunContext(github, 12345, tmpDir)
+
+      // Verify logs were written
+      const logsDir = path.join(tmpDir, ".ci-assistant", "logs")
+      expect(fs.existsSync(logsDir)).toBe(true)
+      const logFiles = fs.readdirSync(logsDir)
+      expect(logFiles.length).toBe(1)
+      expect(logFiles[0]).toMatch(/Test_Job\.txt/)
+      const logContent = fs.readFileSync(path.join(logsDir, logFiles[0]), "utf-8")
+      expect(logContent).toContain("Error: test failed")
+
+      // Verify the prompt snippet references the files
+      expect(result).toContain(".ci-assistant/logs/")
+      expect(result).toContain("run ID 12345")
+    })
+
+    it("returns no-logs message when run has no failed jobs", async () => {
+      // No logs set for run 99999
+      const result = await prepareRunContext(github, 99999, tmpDir)
+      expect(result).toContain("No failed job logs available")
     })
   })
 })

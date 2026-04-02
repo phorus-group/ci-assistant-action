@@ -1,4 +1,13 @@
-import { GitHubClient, PRComment, PR, CreatePRParams, ListPRsParams, RunInfo } from "../src/github"
+import {
+  GitHubClient,
+  PRComment,
+  PR,
+  CreatePRParams,
+  ListPRsParams,
+  RunInfo,
+  JobLogs,
+  ArtifactInfo,
+} from "../src/github"
 import { SlackClient } from "../src/slack"
 import { ClaudeRunner, ClaudeResult, GitOperations } from "../src/claude"
 import { SlackBlock } from "../src/types"
@@ -111,6 +120,20 @@ export class MockGitHubClient implements GitHubClient {
 
   async downloadRunLogs(runId: number): Promise<string> {
     return this.logs.get(runId) || "No logs available"
+  }
+
+  async downloadFailedJobLogs(runId: number): Promise<JobLogs[]> {
+    const logs = this.logs.get(runId)
+    if (!logs) return []
+    return [{ name: "Test Job", logs }]
+  }
+
+  async listRunArtifacts(_runId: number): Promise<ArtifactInfo[]> {
+    return []
+  }
+
+  async downloadArtifact(_artifactId: number): Promise<Buffer> {
+    return Buffer.from("")
   }
 
   async getRunInfo(runId: number): Promise<RunInfo> {

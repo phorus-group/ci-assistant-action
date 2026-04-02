@@ -993,17 +993,45 @@ In command mode, if `failed-run-id` is not provided as an input, the action read
 
 ## CI output and streaming
 
-The action uses `--output-format stream-json --verbose` when invoking Claude Code. This streams structured events in real time to the GitHub Actions log, so you can see what Claude is doing without waiting for the full run to complete:
+The action uses `--output-format stream-json --verbose` when invoking Claude Code. This streams structured events in real time to the GitHub Actions log, so you can see what Claude is doing without waiting for the full run to complete.
+
+All log messages use a `[prefix]` format:
+
+| Prefix | Source |
+|---|---|
+| `[context]` | Downloading logs, artifacts, and preparing context files |
+| `[retry]` | Retry loop progress (attempt N/M, results, early exit) |
+| `[tool]` | Claude Code tool calls (Read, Edit, Bash, etc.) |
+| `[claude]` | Claude Code text responses |
+| `[done]` | Claude Code run summary (turns, tokens, duration) |
+| `[usage]` | Token usage totals across attempts |
+| `[git]` | Git operations (resetHard, clean, applyDiff) |
+| `[auth]` | Authentication and CLI installation |
+| `[cleanup]` | Cleanup of orphaned refs and stale PRs |
+| `[command]` | PR command parsing and audit logging |
+| `[slack]` | Slack message posting and updates |
+
+Example output:
 
 ```
-[tool] Read: {"file_path": "build.gradle.kts"}
-[tool] Edit: {"file_path": "build.gradle.kts", "old_string": "...", "new_string": "..."}
-[tool] Bash: {"command": "./gradlew test"}
-[claude] Fixed the vulnerability by upgrading netty to 4.2.11.Final
-[done] turns=3 in=1500 out=300 cache_read=5000 cache_create=2000 15.2s
+[auth] Installing Claude Code CLI...
+[auth] Claude Code CLI installed
+[context] Downloading logs for run 12345...
+[context] Wrote logs for job "Vulnerability analysis" (245.3KB)
+[context] Listing artifacts for run 12345...
+[context] Downloading artifact "vulnerability-reports-fs" (31.2KB)...
+[context] Extracted artifact "vulnerability-reports-fs" to .ci-assistant/artifacts/vulnerability-reports-fs/
+[retry] Fix attempt 1/3...
+[tool] Read: {"file_path": ".ci-assistant/artifacts/vulnerability-reports-fs/vulnerability-report.json"}
+[tool] Edit: {"file_path": "build.gradle.kts", ...}
+[tool] Bash: {"command": "./gradlew dependencies --write-locks"}
+[claude] Fixed 3 CVEs by adding version overrides for spring-framework and netty.
+[done] turns=5 in=1500 out=300 cache_read=5000 cache_create=2000 15.2s
+[retry] Fix verified on attempt 1 (not-reproduced-tests-pass, 88%)
+[usage] Total across 1 attempt(s): In: 1500 | Out: 300
 ```
 
-The prompt, which contains failure logs, metadata, and high-verbosity information, is never shown in the stream. Only Claude's responses and tool usage appear. Token usage is logged per attempt and as a total across all attempts. In command mode, the user's input is also logged for audit purposes.
+The prompt is never shown in the stream. In command mode, the user's input is logged with `[command]` for audit purposes.
 
 ## Non-code failures
 

@@ -47,6 +47,10 @@ import {
   generateFixId,
   renderPrompt,
   writeContextFile,
+  prepareRunContext,
+  log,
+  logWarning,
+  LogPrefix,
   ClaudeRunner,
   GitOperations,
   TotalUsage,
@@ -82,7 +86,14 @@ function getInputs(): ActionInputs {
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean),
-    appendSystemPrompt: core.getInput("append-system-prompt") || "",
+    appendSystemPrompt: [
+      "You are running inside a GitHub Actions runner. " +
+        "Standard GitHub Actions environment variables are available (GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_REF, GITHUB_TOKEN, etc.). " +
+        "The `gh` CLI is authenticated and available for interacting with the GitHub API.",
+      core.getInput("append-system-prompt"),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     adminUsers: (core.getInput("admin-users") || "")
       .split(",")
       .map((u) => u.trim())
@@ -197,7 +208,7 @@ export async function run(
     // cleanup mode since it requires the pipeline to have passed.
     if (inputs.mode !== Mode.CLEANUP) {
       const cleaned = await cleanupOrphanedRefs(github)
-      if (cleaned > 0) core.info(`Cleaned up ${cleaned} orphaned refs`)
+      if (cleaned > 0) log(LogPrefix.CLEANUP, `Cleaned up ${cleaned} orphaned refs`)
     }
 
     switch (inputs.mode) {
@@ -224,7 +235,7 @@ async function handleCleanup(
   slack: SlackClient | null,
   inputs: ActionInputs
 ): Promise<void> {
-  core.info("Running cleanup...")
+  log(LogPrefix.CLEANUP, "Running cleanup...")
 
   const botUser = await github.getAuthenticatedUser()
 
@@ -256,7 +267,10 @@ async function handleCleanup(
 
     if (!shouldClose) continue
 
-    core.info(`Closing ci-assistant PR #${pr.number} (${baseBranch} pipeline recovered)`)
+    log(
+      LogPrefix.CLEANUP,
+      `Closing ci-assistant PR #${pr.number} (${baseBranch} pipeline recovered)`
+    )
     await github.createComment(
       pr.number,
       `Closing this PR because the \`${baseBranch}\` pipeline is now passing. The fix is no longer needed.`
@@ -265,9 +279,9 @@ async function handleCleanup(
 
     try {
       await github.deleteRef(`refs/heads/${pr.head.ref}`)
-      core.info(`Deleted branch ${pr.head.ref}`)
+      log(LogPrefix.CLEANUP, `Deleted branch ${pr.head.ref}`)
     } catch {
-      core.warning(`Could not delete branch ${pr.head.ref}`)
+      logWarning(LogPrefix.CLEANUP, `Could not delete branch ${pr.head.ref}`)
     }
 
     const prRefs = await github.listRefs(`ci-assistant/${pr.number}/`)
@@ -275,11 +289,11 @@ async function handleCleanup(
       try {
         await github.deleteRef(ref)
       } catch {
-        core.warning(`Could not delete ref ${ref}`)
+        logWarning(LogPrefix.CLEANUP, `Could not delete ref ${ref}`)
       }
     }
     if (prRefs.length > 0) {
-      core.info(`Deleted ${prRefs.length} fix refs for PR #${pr.number}`)
+      log(LogPrefix.CLEANUP, `Deleted ${prRefs.length} fix refs for PR #${pr.number}`)
     }
 
     if (slack && inputs.slackFailureChannel) {
@@ -299,7 +313,7 @@ async function handleCleanup(
 
   // Clean up orphaned refs
   const cleaned = await cleanupOrphanedRefs(github)
-  core.info(`Cleaned up ${cleaned} orphaned refs`)
+  log(LogPrefix.CLEANUP, `Cleaned up ${cleaned} orphaned refs`)
 }
 
 async function handleAutoFix(
@@ -331,11 +345,13 @@ async function handleAutoFix(
       tagSourceBranch = await resolveTagTargetBranch(inputs.failedBranch)
       if (tagSourceBranch) {
         prTargetBranch = tagSourceBranch
-        core.info(
+        log(
+          LogPrefix.CONTEXT,
           `Tag failure detected: ${inputs.failedBranch} -> targeting branch ${tagSourceBranch}`
         )
       } else {
-        core.warning(
+        logWarning(
+          LogPrefix.CONTEXT,
           `Tag failure detected for ${inputs.failedBranch} but could not resolve the source branch. ` +
             `Skipping PR creation to avoid targeting the wrong branch.`
         )
@@ -344,8 +360,9 @@ async function handleAutoFix(
   }
 
   // Download failure logs
-  const logs = inputs.failedRunId
-    ? await github.downloadRunLogs(parseInt(inputs.failedRunId))
+  // Download failure context (per-job logs + artifacts) to .ci-assistant/
+  const runContextRef = inputs.failedRunId
+    ? await prepareRunContext(github, parseInt(inputs.failedRunId), inputs.workingDirectory)
     : "No failure logs available."
 
   // Determine the PR
@@ -385,7 +402,8 @@ async function handleAutoFix(
 
   // State reset on new commit: if the SHA changed, reset per-command limits
   if (meta.lastSha && inputs.failedSha && meta.lastSha !== inputs.failedSha) {
-    core.info(
+    log(
+      LogPrefix.CONTEXT,
       `New commit detected (${meta.lastSha} -> ${inputs.failedSha}), resetting per-command limits`
     )
     meta.retryCt = 0
@@ -438,7 +456,7 @@ async function handleAutoFix(
     runner,
     git,
     inputs,
-    logs,
+    runContextRef,
     previousSuggestions,
     "",
     model,
@@ -471,7 +489,8 @@ async function handleAutoFix(
 
     // Tag failure with unresolved source branch: do not create a PR
     if (isTagFailure && !tagSourceBranch) {
-      core.warning(
+      logWarning(
+        LogPrefix.CONTEXT,
         `Cannot create fix PR for tag ${inputs.failedBranch}: source branch could not be determined. ` +
           `The analysis will be logged but no PR will be created.`
       )
@@ -585,7 +604,7 @@ async function handleAutoFix(
           formatSuggestionComment({
             fixId,
             summary: extractSummary(bestAttempt),
-            errorDetails: logs.slice(0, 5000),
+            errorDetails: runContextRef.slice(0, 5000),
             diff: bestAttempt.diff,
             confidence,
             filesChanged: bestAttempt.filesChanged.length,
@@ -604,7 +623,7 @@ async function handleAutoFix(
           formatSuggestionComment({
             fixId,
             summary: extractSummary(bestAttempt),
-            errorDetails: logs.slice(0, 5000),
+            errorDetails: runContextRef.slice(0, 5000),
             diff: bestAttempt.diff,
             confidence,
             filesChanged: bestAttempt.filesChanged.length,
@@ -688,7 +707,7 @@ async function handleCommand(
   const prNumber = parseInt(inputs.commentPrNumber) || 0
 
   if (!prNumber) {
-    core.warning("No PR number for command mode")
+    logWarning(LogPrefix.COMMAND, "No PR number for command mode")
     return
   }
 
@@ -699,8 +718,9 @@ async function handleCommand(
   // Log command for audit (user-provided input, useful for exploit analysis)
   const commentAuthorForLog =
     process.env.GITHUB_ACTOR || process.env.GITHUB_TRIGGERING_ACTOR || "unknown"
-  core.info(
-    `Command: ${parsed.command} | User: ${commentAuthorForLog} | PR: #${prNumber} | Input: ${commentBody}`
+  log(
+    LogPrefix.COMMAND,
+    `${parsed.command} | User: ${commentAuthorForLog} | PR: #${prNumber} | Input: ${commentBody}`
   )
 
   // Get bot identity
@@ -724,7 +744,7 @@ async function handleCommand(
         inputs.failedSha = pr.head.sha
       }
     } catch {
-      core.warning("Could not retrieve PR info for branch context")
+      logWarning(LogPrefix.COMMAND, "Could not retrieve PR info for branch context")
     }
   }
 
@@ -966,9 +986,14 @@ async function handleExplain(
     fixDiff = suggestions[suggestions.length - 1].diff
   }
 
-  let logs = ""
+  // Download failure context (per-job logs + artifacts)
+  let runContextRef = ""
   if (inputs.failedRunId) {
-    logs = await github.downloadRunLogs(parseInt(inputs.failedRunId))
+    runContextRef = await prepareRunContext(
+      github,
+      parseInt(inputs.failedRunId),
+      inputs.workingDirectory
+    )
   }
 
   // Build conversation history from all PR comments (exclude meta)
@@ -978,7 +1003,7 @@ async function handleExplain(
     .join("\n\n---\n\n")
 
   // Need at least some context to explain
-  if (!fixDiff && !logs && !parsed.userContext && !conversationHistory) {
+  if (!fixDiff && !runContextRef && !parsed.userContext && !conversationHistory) {
     await github.createComment(
       prNumber,
       'No fix, failure logs, or prompt available to explain. Use `-p "<question>"` to ask a question about the project.'
@@ -986,10 +1011,7 @@ async function handleExplain(
     return
   }
 
-  // Write large context to files
-  const logsRef = logs
-    ? `CI failure logs saved to ${writeContextFile(inputs.workingDirectory, "failure-logs.txt", logs)}. Read the relevant parts if needed.`
-    : ""
+  // Write remaining large context to files
   const diffRef = fixDiff
     ? `Fix diff saved to ${writeContextFile(inputs.workingDirectory, "fix-diff.txt", fixDiff)}. Read it to understand the changes.`
     : ""
@@ -999,7 +1021,7 @@ async function handleExplain(
 
   const prompt = renderPrompt(inputs.explainPrompt, {
     USER_PROMPT: parsed.userContext || "",
-    FAILURE_LOGS_IF_AVAILABLE: logsRef,
+    FAILURE_LOGS_IF_AVAILABLE: runContextRef,
     LATEST_FIX_DIFF: diffRef,
     CONVERSATION_HISTORY: historyRef,
     REPO: process.env.GITHUB_REPOSITORY || "",
@@ -1037,10 +1059,14 @@ async function handleFixCommand(
     .map((c) => c.body)
     .join("\n\n---\n\n")
 
-  // Get failure logs if available
-  let logs = ""
+  // Download failure context (per-job logs + artifacts)
+  let runContextRef = ""
   if (inputs.failedRunId) {
-    logs = await github.downloadRunLogs(parseInt(inputs.failedRunId))
+    runContextRef = await prepareRunContext(
+      github,
+      parseInt(inputs.failedRunId),
+      inputs.workingDirectory
+    )
   }
 
   const model = meta.modelOverride || inputs.model
@@ -1070,7 +1096,7 @@ async function handleFixCommand(
     runner,
     git,
     inputs,
-    logs,
+    runContextRef,
     previousSuggestions,
     parsed.userContext || "",
     model,
@@ -1141,7 +1167,7 @@ async function handleFixCommand(
       formatSuggestionComment({
         fixId,
         summary: extractSummary(bestAttempt),
-        errorDetails: logs.slice(0, 5000),
+        errorDetails: runContextRef.slice(0, 5000),
         diff: bestAttempt.diff,
         confidence,
         filesChanged: bestAttempt.filesChanged.length,

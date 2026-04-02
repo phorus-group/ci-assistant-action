@@ -1,11 +1,38 @@
 import * as core from "@actions/core"
 import * as exec from "@actions/exec"
 import { createHash } from "crypto"
-import { mkdirSync, writeFileSync } from "fs"
+import { mkdirSync, writeFileSync, unlinkSync, existsSync } from "fs"
 import { join } from "path"
 import { ConfidenceResult, ConfidenceStatus, RetryAttempt, ActionInputs } from "./types"
+import { GitHubClient } from "./github"
 
 const CONTEXT_DIR = ".ci-assistant"
+
+export enum LogPrefix {
+  CONTEXT = "context",
+  RETRY = "retry",
+  GIT = "git",
+  USAGE = "usage",
+  CLEANUP = "cleanup",
+  COMMAND = "command",
+  AUTH = "auth",
+  SLACK = "slack",
+  CLAUDE = "claude",
+  TOOL = "tool",
+  DONE = "done",
+}
+
+export function log(prefix: LogPrefix, message: string): void {
+  core.info(`[${prefix}] ${message}`)
+}
+
+export function logWarning(prefix: LogPrefix, message: string): void {
+  core.warning(`[${prefix}] ${message}`)
+}
+
+export function logError(prefix: LogPrefix, message: string): void {
+  core.error(`[${prefix}] ${message}`)
+}
 
 /**
  * Writes large context to a file instead of embedding it in the prompt.
@@ -26,6 +53,164 @@ export function writeContextFile(
   const filePath = join(dir, filename)
   writeFileSync(filePath, content, "utf-8")
   return join(CONTEXT_DIR, filename)
+}
+
+const MAX_AUTO_DOWNLOAD_BYTES = 10 * 1024 * 1024 // 10MB
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
+
+/**
+ * Downloads failed job logs and artifacts from a workflow run, writing them
+ * to .ci-assistant/logs/ and .ci-assistant/artifacts/. Small artifacts
+ * (< 10MB) are auto-extracted. Large artifacts are listed in a manifest
+ * so Claude can download them via `gh` if needed.
+ *
+ * Returns a prompt snippet describing what was downloaded and where.
+ */
+export async function prepareRunContext(
+  github: GitHubClient,
+  runId: number,
+  workingDirectory: string
+): Promise<string> {
+  const lines: string[] = []
+  const repo = process.env.GITHUB_REPOSITORY || ""
+  const baseDir = join(workingDirectory, CONTEXT_DIR)
+  mkdirSync(baseDir, { recursive: true })
+  writeFileSync(join(baseDir, ".gitignore"), "*\n", "utf-8")
+
+  // Download per-job logs
+  log(LogPrefix.CONTEXT, `Downloading logs for run ${runId}...`)
+  const jobLogs = await github.downloadFailedJobLogs(runId)
+
+  if (jobLogs.length > 0) {
+    const logsDir = join(baseDir, "logs")
+    mkdirSync(logsDir, { recursive: true })
+    for (const job of jobLogs) {
+      const safeName = job.name.replace(/[^a-zA-Z0-9._-]/g, "_")
+      writeFileSync(join(logsDir, `${safeName}.txt`), job.logs, "utf-8")
+      log(LogPrefix.CONTEXT, `Wrote logs for job "${job.name}" (${formatBytes(job.logs.length)})`)
+    }
+    const jobNames = jobLogs.map((j) => `"${j.name}"`).join(", ")
+    lines.push(
+      `Failed job logs saved to ${CONTEXT_DIR}/logs/ (${jobLogs.length} job(s): ${jobNames}). ` +
+        `Each file is named after the job. Read or grep them to find the error.`
+    )
+  } else {
+    lines.push("No failed job logs available.")
+  }
+
+  // List and download artifacts
+  log(LogPrefix.CONTEXT, `Listing artifacts for run ${runId}...`)
+  const artifacts = await github.listRunArtifacts(runId)
+
+  if (artifacts.length > 0) {
+    const artifactsDir = join(baseDir, "artifacts")
+    mkdirSync(artifactsDir, { recursive: true })
+
+    const downloaded: string[] = []
+    const skipped: { name: string; size: string }[] = []
+
+    for (const artifact of artifacts) {
+      if (artifact.sizeBytes <= MAX_AUTO_DOWNLOAD_BYTES) {
+        try {
+          log(
+            LogPrefix.CONTEXT,
+            `Downloading artifact "${artifact.name}" (${formatBytes(artifact.sizeBytes)})...`
+          )
+          const zipBuffer = await github.downloadArtifact(artifact.id)
+          // Use artifact name as dir, append ID on collision
+          const dirName = existsSync(join(artifactsDir, artifact.name))
+            ? `${artifact.name}_${artifact.id}`
+            : artifact.name
+          const artifactDir = join(artifactsDir, dirName)
+          await extractZip(zipBuffer, artifactDir)
+          downloaded.push(dirName)
+          log(
+            LogPrefix.CONTEXT,
+            `Extracted artifact "${artifact.name}" to ${CONTEXT_DIR}/artifacts/${dirName}/`
+          )
+        } catch (error) {
+          logWarning(LogPrefix.CONTEXT, `Failed to download artifact "${artifact.name}": ${error}`)
+          skipped.push({ name: artifact.name, size: formatBytes(artifact.sizeBytes) })
+        }
+      } else {
+        log(
+          LogPrefix.CONTEXT,
+          `Skipping large artifact "${artifact.name}" (${formatBytes(artifact.sizeBytes)}, exceeds ${formatBytes(MAX_AUTO_DOWNLOAD_BYTES)} limit)`
+        )
+        skipped.push({ name: artifact.name, size: formatBytes(artifact.sizeBytes) })
+      }
+    }
+
+    // Write manifest
+    const manifestLines = ["# Artifacts from failed workflow run", ""]
+    if (downloaded.length > 0) {
+      manifestLines.push("## Downloaded (extracted to artifacts/<name>/)")
+      for (const name of downloaded) {
+        manifestLines.push(`- ${name}`)
+      }
+      manifestLines.push("")
+    }
+    if (skipped.length > 0) {
+      manifestLines.push("## Not downloaded (too large or failed)")
+      manifestLines.push("Use `gh api` to download if needed:")
+      manifestLines.push("")
+      for (const { name, size } of skipped) {
+        const matchingArtifact = artifacts.find((a) => a.name === name)
+        if (matchingArtifact) {
+          manifestLines.push(
+            `- ${name} (${size}), download with: gh api repos/${repo}/actions/artifacts/${matchingArtifact.id}/zip > ${name}.zip`
+          )
+        }
+      }
+      manifestLines.push("")
+    }
+    writeFileSync(join(artifactsDir, "manifest.txt"), manifestLines.join("\n"), "utf-8")
+
+    if (downloaded.length > 0) {
+      lines.push(
+        `Artifacts extracted to ${CONTEXT_DIR}/artifacts/ (${downloaded.join(", ")}). ` +
+          `Check these for detailed reports (e.g. vulnerability-report.json).`
+      )
+    }
+    if (skipped.length > 0) {
+      lines.push(
+        `${skipped.length} large artifact(s) were not auto-downloaded. ` +
+          `See ${CONTEXT_DIR}/artifacts/manifest.txt for download commands if you need them.`
+      )
+    }
+  }
+
+  // Give Claude the run info so it can fetch more data via `gh` if needed
+  lines.push(
+    `Failed workflow run: ${repo} run ID ${runId}. ` +
+      `Use \`gh run view ${runId}\` or \`gh api repos/${repo}/actions/runs/${runId}\` for more details.`
+  )
+
+  return lines.join("\n")
+}
+
+async function extractZip(zipBuffer: Buffer, destDir: string): Promise<void> {
+  mkdirSync(destDir, { recursive: true })
+  // Use native unzip via exec since we're already in a Node.js GitHub Action runner
+  const tmpZip = join(destDir, "__tmp.zip")
+  writeFileSync(tmpZip, zipBuffer)
+  try {
+    await exec.exec("unzip", ["-o", "-q", tmpZip, "-d", destDir], {
+      silent: true,
+      ignoreReturnCode: true,
+    })
+  } finally {
+    try {
+      unlinkSync(tmpZip)
+    } catch {
+      // best effort cleanup
+    }
+  }
 }
 
 export interface ClaudeRunner {
@@ -89,11 +274,12 @@ export function formatStreamEvent(event: StreamEvent): string | null {
       const parts: string[] = []
       for (const c of event.message?.content ?? []) {
         if (c.type === "text" && c.text) {
-          parts.push(`[claude] ${c.text.length > 500 ? c.text.slice(0, 500) + "..." : c.text}`)
+          const text = c.text.length > 500 ? c.text.slice(0, 500) + "..." : c.text
+          parts.push(`[${LogPrefix.CLAUDE}] ${text}`)
         } else if (c.type === "tool_use" && c.name) {
           const input = JSON.stringify(c.input ?? {})
           const short = input.length > 150 ? input.slice(0, 150) + "..." : input
-          parts.push(`[tool] ${c.name}: ${short}`)
+          parts.push(`[${LogPrefix.TOOL}] ${c.name}: ${short}`)
         }
       }
       return parts.length > 0 ? parts.join("\n") : null
@@ -102,9 +288,9 @@ export function formatStreamEvent(event: StreamEvent): string | null {
     case "result": {
       const u = event.usage
       if (!u)
-        return `[done] turns=${event.num_turns ?? 0} ${((event.duration_ms ?? 0) / 1000).toFixed(1)}s`
+        return `[${LogPrefix.DONE}] turns=${event.num_turns ?? 0} ${((event.duration_ms ?? 0) / 1000).toFixed(1)}s`
       return (
-        `[done] turns=${event.num_turns ?? 0}` +
+        `[${LogPrefix.DONE}] turns=${event.num_turns ?? 0}` +
         ` in=${u.input_tokens ?? 0} out=${u.output_tokens ?? 0}` +
         ` cache_read=${u.cache_read_input_tokens ?? 0}` +
         ` cache_create=${u.cache_creation_input_tokens ?? 0}` +
@@ -275,41 +461,41 @@ export class RealGitOperations implements GitOperations {
   }
 
   async resetHard(): Promise<void> {
-    core.info("[git] resetHard: git checkout -- .")
+    log(LogPrefix.GIT, "resetHard: git checkout -- .")
     const result = await exec.getExecOutput("git", ["checkout", "--", "."], {
       cwd: this.cwd,
       silent: true,
       ignoreReturnCode: true,
     })
     if (result.exitCode !== 0) {
-      core.error(`[git] resetHard failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
+      logError(LogPrefix.GIT, `resetHard failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
       // Log git status for context
       const status = await exec.getExecOutput("git", ["status", "--short"], {
         cwd: this.cwd,
         silent: true,
         ignoreReturnCode: true,
       })
-      core.info(`[git] status after failed resetHard:\n${status.stdout.trim()}`)
+      log(LogPrefix.GIT, `status after failed resetHard:\n${status.stdout.trim()}`)
       throw new Error(`git checkout -- . failed with exit code ${result.exitCode}`)
     }
   }
 
   async clean(): Promise<void> {
-    core.info("[git] clean: git clean -fd")
+    log(LogPrefix.GIT, "clean: git clean -fd")
     const result = await exec.getExecOutput("git", ["clean", "-fd"], {
       cwd: this.cwd,
       silent: true,
       ignoreReturnCode: true,
     })
     if (result.exitCode !== 0) {
-      core.error(`[git] clean failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
+      logError(LogPrefix.GIT, `clean failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
       throw new Error(`git clean -fd failed with exit code ${result.exitCode}`)
     }
   }
 
   async applyDiff(diff: string): Promise<void> {
     if (!diff) return
-    core.info(`[git] applyDiff: git apply (${diff.length} bytes)`)
+    log(LogPrefix.GIT, `applyDiff: git apply (${diff.length} bytes)`)
     const result = await exec.getExecOutput("git", ["apply"], {
       cwd: this.cwd,
       silent: true,
@@ -317,9 +503,9 @@ export class RealGitOperations implements GitOperations {
       input: Buffer.from(diff),
     })
     if (result.exitCode !== 0) {
-      core.error(`[git] applyDiff failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
+      logError(LogPrefix.GIT, `applyDiff failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
       // Log first 500 chars of diff for context
-      core.info(`[git] diff preview:\n${diff.slice(0, 500)}`)
+      log(LogPrefix.GIT, `diff preview:\n${diff.slice(0, 500)}`)
       throw new Error(`git apply failed with exit code ${result.exitCode}`)
     }
   }
@@ -329,7 +515,7 @@ export async function runWithRetries(
   runner: ClaudeRunner,
   git: GitOperations,
   inputs: ActionInputs,
-  failureLogs: string,
+  runContextRef: string,
   previousSuggestions: string,
   userContext: string,
   model: string,
@@ -343,11 +529,7 @@ export async function runWithRetries(
   let totalCacheCreationTokens = 0
   let totalDurationMs = 0
 
-  // Write large context to files so Claude can read only what it needs
-  // instead of processing the entire content in the prompt.
-  const logsRef = failureLogs
-    ? `CI failure logs saved to ${writeContextFile(inputs.workingDirectory, "failure-logs.txt", failureLogs)}. Read the relevant parts to diagnose the issue.`
-    : "No failure logs available."
+  // Write remaining large context to files
   const suggestionsRef = previousSuggestions
     ? `Previous fix suggestions saved to ${writeContextFile(inputs.workingDirectory, "previous-suggestions.txt", previousSuggestions)}. Read them to avoid repeating the same approaches.`
     : ""
@@ -356,7 +538,7 @@ export async function runWithRetries(
     : ""
 
   for (let i = 1; i <= inputs.maxRetries; i++) {
-    core.info(`Fix attempt ${i}/${inputs.maxRetries}...`)
+    log(LogPrefix.RETRY, `Fix attempt ${i}/${inputs.maxRetries}...`)
 
     // Reset working tree between attempts
     if (i > 1) {
@@ -367,8 +549,8 @@ export async function runWithRetries(
     // Build prompt
     let prompt: string
     const commonValues = {
-      FAILURE_LOGS: logsRef,
-      FAILURE_LOGS_IF_AVAILABLE: logsRef,
+      FAILURE_LOGS: runContextRef,
+      FAILURE_LOGS_IF_AVAILABLE: runContextRef,
       PREVIOUS_SUGGESTIONS: suggestionsRef,
       USER_CONTEXT: userContext,
       CONVERSATION_HISTORY: historyRef,
@@ -402,7 +584,7 @@ export async function runWithRetries(
     prompt +=
       "\n\n" +
       renderPrompt(inputs.confidencePrompt, {
-        FAILURE_LOGS: logsRef,
+        FAILURE_LOGS: runContextRef,
         REPRODUCTION_OUTPUT: "",
         FIX_DIFF: "{{WILL_BE_FILLED_AFTER_FIX}}",
         POST_FIX_TEST_OUTPUT: "{{WILL_BE_FILLED_AFTER_TESTS}}",
@@ -442,11 +624,15 @@ export async function runWithRetries(
         (confidence.status === ConfidenceStatus.NOT_REPRODUCED_TESTS_PASS &&
           confidence.percentage >= 70))
     if (shouldStop) {
-      core.info(`Fix verified on attempt ${i} (${confidence!.status}, ${confidence!.percentage}%)`)
+      log(
+        LogPrefix.RETRY,
+        `Fix verified on attempt ${i} (${confidence!.status}, ${confidence!.percentage}%)`
+      )
       break
     }
 
-    core.info(
+    log(
+      LogPrefix.RETRY,
       `Attempt ${i} result: ${confidence?.status || "unknown"} (${confidence?.percentage || 0}%)`
     )
   }
@@ -456,7 +642,10 @@ export async function runWithRetries(
   // Restore working directory to match the best attempt's state.
   // The working directory currently has the LAST attempt's state, which may differ.
   if (bestAttempt.diff && bestAttempt.attempt !== attempts.length) {
-    core.info(`Best attempt was #${bestAttempt.attempt} (not the last), restoring its changes`)
+    log(
+      LogPrefix.RETRY,
+      `Best attempt was #${bestAttempt.attempt} (not the last), restoring its changes`
+    )
     await git.resetHard()
     await git.clean()
     await git.applyDiff(bestAttempt.diff)
@@ -472,8 +661,9 @@ export async function runWithRetries(
   }
 
   if (totalInputTokens > 0 || totalOutputTokens > 0) {
-    core.info(
-      `[usage] Total across ${attempts.length} attempt(s): In: ${totalInputTokens} | Out: ${totalOutputTokens}`
+    log(
+      LogPrefix.USAGE,
+      `Total across ${attempts.length} attempt(s): In: ${totalInputTokens} | Out: ${totalOutputTokens}`
     )
   }
 

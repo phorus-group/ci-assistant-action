@@ -1,6 +1,7 @@
 import * as core from "@actions/core"
 import * as exec from "@actions/exec"
 import { Mode } from "./types"
+import { log, logWarning, LogPrefix } from "./claude"
 
 export interface AuthResult {
   method: "oauth" | "api-key"
@@ -31,7 +32,10 @@ export async function validateAuth(
 
     if (apiKey) {
       const warning = `## :warning: Claude OAuth token expired\n\nFalling back to API key (pay-per-use billing).\n\n${renewalInstructions}`
-      core.warning("Claude OAuth token expired, falling back to API key (pay-per-use)")
+      logWarning(
+        LogPrefix.AUTH,
+        "Claude OAuth token expired, falling back to API key (pay-per-use)"
+      )
       core.summary.addRaw(warning)
       await core.summary.write()
       return { method: "api-key", token: apiKey }
@@ -46,7 +50,7 @@ export async function validateAuth(
 
   if (apiKey) {
     const warning = `## :warning: Using API key (pay-per-use)\n\nConsider using \`claude setup-token\` for subscription-based quota instead of pay-per-use billing.\n\n1. Run: \`claude setup-token\`\n2. Copy the token\n3. Store as \`CLAUDE_CODE_OAUTH_TOKEN\` secret`
-    core.warning("Using API key (pay-per-use). Recommend claude setup-token.")
+    logWarning(LogPrefix.AUTH, "Using API key (pay-per-use). Recommend claude setup-token.")
     core.summary.addRaw(warning)
     await core.summary.write()
     return { method: "api-key", token: apiKey }
@@ -78,9 +82,9 @@ async function testOAuthToken(token: string): Promise<boolean> {
 }
 
 export async function installClaude(): Promise<void> {
-  core.info("Installing Claude Code CLI...")
+  log(LogPrefix.AUTH, "Installing Claude Code CLI...")
   await exec.exec("npm", ["install", "-g", "@anthropic-ai/claude-code"], {
     silent: true,
   })
-  core.info("Claude Code CLI installed")
+  log(LogPrefix.AUTH, "Claude Code CLI installed")
 }

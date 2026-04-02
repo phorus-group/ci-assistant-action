@@ -1,6 +1,6 @@
-import * as core from "@actions/core"
 import * as exec from "@actions/exec"
 import * as github from "@actions/github"
+import { log, logWarning, LogPrefix } from "./claude"
 import {
   MetaComment,
   createDefaultMeta,
@@ -11,6 +11,17 @@ import {
   CONFIDENCE_STATUS_LABELS,
 } from "./types"
 
+export interface JobLogs {
+  name: string
+  logs: string
+}
+
+export interface ArtifactInfo {
+  id: number
+  name: string
+  sizeBytes: number
+}
+
 export interface GitHubClient {
   getComments(prNumber: number): Promise<PRComment[]>
   createComment(prNumber: number, body: string): Promise<PRComment>
@@ -20,6 +31,9 @@ export interface GitHubClient {
   closePR(prNumber: number): Promise<void>
   listPRs(params: ListPRsParams): Promise<PR[]>
   downloadRunLogs(runId: number): Promise<string>
+  downloadFailedJobLogs(runId: number): Promise<JobLogs[]>
+  listRunArtifacts(runId: number): Promise<ArtifactInfo[]>
+  downloadArtifact(artifactId: number): Promise<Buffer>
   getRunInfo(runId: number): Promise<RunInfo>
   getAuthenticatedUser(): Promise<string>
   listRefs(prefix: string): Promise<string[]>
@@ -230,9 +244,75 @@ export class OctokitGitHubClient implements GitHubClient {
 
       return logs
     } catch (error) {
-      core.warning(`Failed to download logs for run ${runId}: ${error}`)
+      logWarning(LogPrefix.CONTEXT, `Failed to download logs for run ${runId}: ${error}`)
       return "Failed to download pipeline logs."
     }
+  }
+
+  async downloadFailedJobLogs(runId: number): Promise<JobLogs[]> {
+    try {
+      const { data } = await this.octokit.rest.actions.listJobsForWorkflowRun({
+        owner: this.owner,
+        repo: this.repo,
+        run_id: runId,
+        filter: "latest",
+      })
+
+      const failedJobs = data.jobs.filter((j: OctokitJob) => j.conclusion === "failure")
+      const results: JobLogs[] = []
+
+      for (const job of failedJobs) {
+        try {
+          const { data: logData } = await this.octokit.rest.actions.downloadJobLogsForWorkflowRun({
+            owner: this.owner,
+            repo: this.repo,
+            job_id: job.id,
+          })
+          let logs = String(logData)
+          // Cap per-job logs at 1MB
+          const maxLogSize = 1024 * 1024
+          if (logs.length > maxLogSize) {
+            logs = "[...truncated, showing last 1MB...]\n" + logs.slice(logs.length - maxLogSize)
+          }
+          results.push({ name: job.name, logs })
+        } catch {
+          results.push({ name: job.name, logs: "(logs unavailable)" })
+        }
+      }
+
+      return results
+    } catch (error) {
+      logWarning(LogPrefix.CONTEXT, `Failed to download job logs for run ${runId}: ${error}`)
+      return []
+    }
+  }
+
+  async listRunArtifacts(runId: number): Promise<ArtifactInfo[]> {
+    try {
+      const { data } = await this.octokit.rest.actions.listWorkflowRunArtifacts({
+        owner: this.owner,
+        repo: this.repo,
+        run_id: runId,
+      })
+      return data.artifacts.map((a: { id: number; name: string; size_in_bytes: number }) => ({
+        id: a.id,
+        name: a.name,
+        sizeBytes: a.size_in_bytes,
+      }))
+    } catch (error) {
+      logWarning(LogPrefix.CONTEXT, `Failed to list artifacts for run ${runId}: ${error}`)
+      return []
+    }
+  }
+
+  async downloadArtifact(artifactId: number): Promise<Buffer> {
+    const { data } = await this.octokit.rest.actions.downloadArtifact({
+      owner: this.owner,
+      repo: this.repo,
+      artifact_id: artifactId,
+      archive_format: "zip",
+    })
+    return Buffer.from(data as ArrayBuffer)
   }
 
   async getRunInfo(runId: number): Promise<RunInfo> {
@@ -361,7 +441,7 @@ export async function readMeta(
           return { meta: { ...createDefaultMeta(), ...meta }, commentId: comment.id }
         }
       } catch {
-        core.warning(`Failed to parse meta comment ${comment.id}`)
+        logWarning(LogPrefix.CONTEXT, `Failed to parse meta comment ${comment.id}`)
       }
     }
   }
@@ -516,7 +596,7 @@ export async function createBranchAndPushFix(branchName: string, baseSha: string
 
   await exec.exec("git", ["push", "origin", branchName], { silent: true })
 
-  core.info(`Created and pushed branch ${branchName}`)
+  log(LogPrefix.GIT, `Created and pushed branch ${branchName}`)
 }
 
 export async function createFixRef(prNumber: number, fixId: string): Promise<void> {
@@ -546,7 +626,7 @@ export async function createFixRef(prNumber: number, fixId: string): Promise<voi
   })
 
   await exec.exec("git", ["reset", "--hard", "HEAD"], { silent: true })
-  core.info(`Stored fix as ref ${ref}`)
+  log(LogPrefix.GIT, `Stored fix as ref ${ref}`)
 }
 
 export async function acceptFixFromRef(
@@ -593,10 +673,10 @@ export async function cleanupOrphanedRefs(client: GitHubClient): Promise<number>
           await client.deleteRef(ref)
           cleaned++
         }
-        core.info(`Cleaned up ${prRefs.length} refs for closed PR #${prNumber}`)
+        log(LogPrefix.CLEANUP, `Cleaned up ${prRefs.length} refs for closed PR #${prNumber}`)
       }
     } catch {
-      core.warning(`Could not check PR #${prNumber} status for ref cleanup`)
+      logWarning(LogPrefix.CLEANUP, `Could not check PR #${prNumber} status for ref cleanup`)
     }
   }
 

@@ -22,6 +22,7 @@ jest.mock("@actions/core", () => ({
   setOutput: jest.fn(),
   info: jest.fn(),
   warning: jest.fn(),
+  error: jest.fn(),
   summary: {
     addRaw: jest.fn().mockReturnThis(),
     write: jest.fn().mockResolvedValue(undefined),
