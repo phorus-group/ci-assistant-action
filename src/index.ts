@@ -693,6 +693,13 @@ async function handleCommand(
   const parsed = parseCommand(commentBody)
   if (!parsed) return
 
+  // Log command for audit (user-provided input, useful for exploit analysis)
+  const commentAuthorForLog =
+    process.env.GITHUB_ACTOR || process.env.GITHUB_TRIGGERING_ACTOR || "unknown"
+  core.info(
+    `Command: ${parsed.command} | User: ${commentAuthorForLog} | PR: #${prNumber} | Input: ${commentBody}`
+  )
+
   // Get bot identity
   const botUser = await github.getAuthenticatedUser()
 

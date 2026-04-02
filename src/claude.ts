@@ -67,12 +67,17 @@ export class CliClaudeRunner implements ClaudeRunner {
 
       const result = await exec.getExecOutput("claude", args, {
         cwd: this.workingDirectory,
-        silent: false,
+        silent: true,
         ignoreReturnCode: true,
         env: process.env as Record<string, string>,
       })
       output = result.stdout + result.stderr
       exitCode = result.exitCode
+
+      // Log only Claude's response, not the prompt (which embeds verbose failure logs)
+      if (result.stdout.trim()) {
+        core.info(result.stdout.trim())
+      }
     } catch (error) {
       output = String(error)
       exitCode = 1
