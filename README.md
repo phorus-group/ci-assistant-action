@@ -256,7 +256,7 @@ When a pipeline fails on a PR branch, the action downloads the failure logs, run
 
 1. The action installs Claude Code CLI via `npm install -g @anthropic-ai/claude-code`
 2. Auth is validated (OAuth token tested, API key as fallback)
-3. Failure logs are downloaded from the GitHub API (failed jobs only, truncated to last 100KB if larger)
+3. Failure logs are downloaded from the GitHub API (failed jobs only) and artifacts are fetched
 4. If the PR has a prior CI Assistant meta comment and the commit SHA changed since the last analysis, per-command limits and fix history are reset (the general total limit persists)
 5. Claude Code runs with the failure logs, reproducing the error, implementing a fix, and running tests
 6. If the first attempt does not produce a verified fix, the action retries with context about what previous attempts tried (see [Retry loop](#retry-loop-and-fix-selection))
@@ -659,7 +659,7 @@ Output exactly: CONFIDENCE_PERCENT: <number>
 
 | Placeholder | Description |
 |---|---|
-| `{{FAILURE_LOGS}}` | Reference to the failure logs file (`.ci-assistant/failure-logs.txt`). Claude reads only the relevant parts instead of processing the entire log. Truncated to 1MB. |
+| `{{FAILURE_LOGS}}` | Reference to failure context files (logs in `.ci-assistant/logs/`, artifacts in `.ci-assistant/artifacts/`). Claude reads only the relevant parts using Read and Grep. |
 | `{{FAILURE_LOGS_IF_AVAILABLE}}` | Same as above if a failure triggered this run, empty string otherwise |
 | `{{REPO}}` | Repository full name (`owner/repo`) |
 | `{{BRANCH}}` | Branch name |
@@ -982,7 +982,7 @@ The action downloads logs from the GitHub API by listing failed jobs for the wor
 - Only jobs with `conclusion == 'failure'` are included (passing jobs are skipped)
 - Each job's logs are prefixed with `--- Job: <name> ---`
 - If a job's logs can't be downloaded, the section reads `--- Job: <name> (logs unavailable) ---`
-- If total log output exceeds 1MB, the beginning is trimmed and the **last 1MB** is kept (the end of logs is most relevant for diagnosing failures). Prefixed with `[...truncated, showing last 1MB...]`
+- Logs are written to `.ci-assistant/logs/<JobName>.txt`. Claude reads them on demand using Read and Grep.
 - If the entire download fails, returns "Failed to download pipeline logs."
 - If no failed jobs are found, returns "No failed jobs found in the workflow run."
 - If no `failed-run-id` is provided, returns "No failure logs available."

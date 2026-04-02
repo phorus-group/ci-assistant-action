@@ -170,11 +170,13 @@ Repository: {{REPO}}
 Branch: {{BRANCH}}`,
     confidencePrompt:
       core.getInput("confidence-prompt") ||
-      `Rate your confidence from 0-100% that this fix correctly addresses the issue.
+      `Rate your confidence and output these markers at the end of your response:
 
-If this failure is not caused by the code itself (e.g. infrastructure, flaky tests, runner issues, network errors, timeouts, out of memory), include in your response: ISSUE_TYPE: NON_CODE
+REPRODUCED: YES or NO (were you able to reproduce the error locally?)
+VERIFIED: YES or NO (did you deterministically verify the fix works? e.g. running tests, running the build, checking dependency versions, confirming the vulnerability is gone)
+CONFIDENCE_PERCENT: <number from 0 to 100>
 
-Output exactly: CONFIDENCE_PERCENT: <number>`,
+If this failure is not caused by the code itself (e.g. infrastructure, flaky tests, runner issues, network errors, timeouts, out of memory), also include: ISSUE_TYPE: NON_CODE`,
     githubToken: core.getInput("github-token") || "",
     claudeCodeOauthToken: core.getInput("claude-code-oauth-token") || "",
     anthropicApiKey: core.getInput("anthropic-api-key") || "",
@@ -604,7 +606,7 @@ async function handleAutoFix(
           formatSuggestionComment({
             fixId,
             summary: extractSummary(bestAttempt),
-            errorDetails: runContextRef.slice(0, 5000),
+            errorDetails: runContextRef,
             diff: bestAttempt.diff,
             confidence,
             filesChanged: bestAttempt.filesChanged.length,
@@ -623,7 +625,7 @@ async function handleAutoFix(
           formatSuggestionComment({
             fixId,
             summary: extractSummary(bestAttempt),
-            errorDetails: runContextRef.slice(0, 5000),
+            errorDetails: runContextRef,
             diff: bestAttempt.diff,
             confidence,
             filesChanged: bestAttempt.filesChanged.length,

@@ -147,7 +147,7 @@ describe("Integration Tests", () => {
 
     it("suggests a fix when Claude reproduces and verifies", async () => {
       claude.addResult({
-        output: "Error reproduced. Fixed the issue. All tests pass. CONFIDENCE_PERCENT: 90",
+        output: "Fixed the issue.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 90",
         diff: "--- a/src/Foo.ts\n+++ b/src/Foo.ts\n-const x = false;\n+const x = true;",
         filesChanged: ["src/Foo.ts"],
       })
@@ -207,13 +207,14 @@ describe("Integration Tests", () => {
       claude.addResult({ output: "Cannot fix.", diff: "", filesChanged: [] })
       // Attempt 2: fix but tests still fail
       claude.addResult({
-        output: "Error reproduced. Applied fix. Test failure persists. CONFIDENCE_PERCENT: 35",
+        output:
+          "Applied fix but tests still fail.\nREPRODUCED: YES\nVERIFIED: NO\nCONFIDENCE_PERCENT: 35",
         diff: "diff content attempt 2",
         filesChanged: ["src/Bar.ts"],
       })
       // Attempt 3: fix and tests pass
       claude.addResult({
-        output: "Error reproduced. Fixed. All tests pass. CONFIDENCE_PERCENT: 85",
+        output: "Fixed.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 85",
         diff: "diff content attempt 3",
         filesChanged: ["src/Baz.ts"],
       })
@@ -254,6 +255,24 @@ describe("Integration Tests", () => {
       // Reset called between attempts (not before first)
       expect(git.resetCount).toBe(2)
       expect(git.cleanCount).toBe(2)
+    })
+
+    it("writes per-attempt output files for retry context", async () => {
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({ mode: "auto-fix" }, tmpDir)
+
+      claude.addResult({ output: "Attempt 1 output", diff: "", filesChanged: [] })
+      claude.addResult({ output: "Attempt 2 output", diff: "", filesChanged: [] })
+      claude.addResult({ output: "Attempt 3 output", diff: "", filesChanged: [] })
+
+      await run(github, slack, claude, git)
+
+      expect(fs.existsSync(path.join(tmpDir, ".ci-assistant", "attempt-1-output.txt"))).toBe(true)
+      expect(fs.existsSync(path.join(tmpDir, ".ci-assistant", "attempt-2-output.txt"))).toBe(true)
+      expect(fs.existsSync(path.join(tmpDir, ".ci-assistant", "attempt-3-output.txt"))).toBe(true)
+      expect(
+        fs.readFileSync(path.join(tmpDir, ".ci-assistant", "attempt-1-output.txt"), "utf-8")
+      ).toContain("Attempt 1 output")
     })
   })
 
@@ -346,7 +365,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Trying different approach. All tests pass. CONFIDENCE_PERCENT: 75",
+        output: "Trying different approach.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 75",
         diff: "--- a/src/Alt.ts\n+++ b/src/Alt.ts\n-old\n+new",
         filesChanged: ["src/Alt.ts"],
       })
@@ -392,7 +411,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Added error handling. All tests pass. CONFIDENCE_PERCENT: 80",
+        output: "Added error handling.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 80",
         diff: "--- a/src/Parser.ts\n+++ b/src/Parser.ts\n+try { } catch (e) { }",
         filesChanged: ["src/Parser.ts"],
       })
@@ -417,7 +436,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Fixed based on hint. CONFIDENCE_PERCENT: 70",
+        output: "Fixed based on hint.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 70",
         diff: "diff content",
         filesChanged: ["src/Foo.ts"],
       })
@@ -442,7 +461,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Fixed. CONFIDENCE_PERCENT: 60",
+        output: "Fixed.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 60",
         diff: "some diff",
         filesChanged: ["src/X.ts"],
       })
@@ -491,7 +510,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Found the issue on retry. All tests pass. CONFIDENCE_PERCENT: 85",
+        output: "Found the issue on retry.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 85",
         diff: "retry diff",
         filesChanged: ["src/Retry.ts"],
       })
@@ -882,7 +901,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Done. CONFIDENCE_PERCENT: 80",
+        output: "Done.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 80",
         diff: "diff",
         filesChanged: ["x.ts"],
       })
@@ -1193,7 +1212,7 @@ describe("Integration Tests", () => {
       cleanupInputs = setupDefaultInputs({ mode: "auto-fix" })
 
       claude.addResult({
-        output: "Fixed. CONFIDENCE_PERCENT: 80",
+        output: "Fixed.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 80",
         diff: "diff",
         filesChanged: ["x.ts"],
       })
@@ -1232,7 +1251,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "New approach. CONFIDENCE_PERCENT: 70",
+        output: "New approach.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 70",
         diff: "new diff",
         filesChanged: ["y.ts"],
       })
@@ -1253,7 +1272,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Fixed. CONFIDENCE_PERCENT: 80",
+        output: "Fixed.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 80",
         diff: "diff",
         filesChanged: ["x.ts"],
       })
@@ -1334,7 +1353,7 @@ describe("Integration Tests", () => {
       cleanupInputs = setupDefaultInputs({ mode: "auto-fix" })
 
       claude.addResult({
-        output: "Error reproduced. Fixed the null check. All tests pass. CONFIDENCE_PERCENT: 88",
+        output: "Fixed the null check.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 88",
         diff: "--- a/src/Service.kt\n+++ b/src/Service.kt\n-val x = items.first()\n+val x = items.firstOrNull()",
         filesChanged: ["src/Service.kt"],
       })
@@ -1409,7 +1428,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Different approach. All tests pass. CONFIDENCE_PERCENT: 72",
+        output: "Different approach.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 72",
         diff: "--- a/src/Alt.kt\n+++ b/src/Alt.kt\n-x\n+y",
         filesChanged: ["src/Alt.kt"],
       })
@@ -1462,7 +1481,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Added input validation. All tests pass. CONFIDENCE_PERCENT: 92",
+        output: "Added input validation.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 92",
         diff: "--- a/src/UserController.kt\n+++ b/src/UserController.kt\n+if (name.isBlank()) throw BadRequest()",
         filesChanged: ["src/UserController.kt"],
       })
@@ -1494,7 +1513,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Added logging. All tests pass. CONFIDENCE_PERCENT: 88",
+        output: "Added logging.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 88",
         diff: '--- a/src/Service.kt\n+++ b/src/Service.kt\n+log.info("processing")',
         filesChanged: ["src/Service.kt"],
       })
@@ -1519,7 +1538,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Error reproduced. Fixed. All tests pass. CONFIDENCE_PERCENT: 90",
+        output: "Fixed.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 90",
         diff: "--- a/src/Bug.kt\n+++ b/src/Bug.kt\n-broken\n+fixed",
         filesChanged: ["src/Bug.kt"],
       })
@@ -1552,7 +1571,7 @@ describe("Integration Tests", () => {
       })
 
       claude.addResult({
-        output: "Done. CONFIDENCE_PERCENT: 85",
+        output: "Done.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 85",
         diff: "logging diff",
         filesChanged: ["src/Log.kt"],
       })
@@ -1574,7 +1593,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Fixed. All tests pass. CONFIDENCE_PERCENT: 90",
+        output: "Fixed.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 90",
         diff: "fix diff",
         filesChanged: ["src/Fix.kt"],
       })
@@ -1618,7 +1637,7 @@ describe("Integration Tests", () => {
       cleanupInputs = setupDefaultInputs({ mode: "auto-fix" })
 
       claude.addResult({
-        output: "Fixed. All tests pass. CONFIDENCE_PERCENT: 80",
+        output: "Fixed.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 80",
         diff: "auto-fix diff",
         filesChanged: ["src/Fix.kt"],
       })
@@ -1644,7 +1663,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Done. CONFIDENCE_PERCENT: 75",
+        output: "Done.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 75",
         diff: "suggest diff",
         filesChanged: ["src/Handler.kt"],
       })
@@ -1715,7 +1734,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Error reproduced. Fixed. All tests pass. CONFIDENCE_PERCENT: 92",
+        output: "Fixed.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 92",
         diff: "pipeline fix diff",
         filesChanged: ["src/PipelineFix.kt"],
       })
@@ -1915,7 +1934,7 @@ describe("Integration Tests", () => {
       claude = new MockClaudeRunner()
       claude.addResult({
         output:
-          "Found it! The mapper config was missing the new field. Fixed. All tests pass. CONFIDENCE_PERCENT: 95",
+          "Found it! The mapper config was missing the new field. Fixed.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 95",
         diff: '--- a/src/MapperConfig.kt\n+++ b/src/MapperConfig.kt\n+field("newField", String::class)',
         filesChanged: ["src/MapperConfig.kt"],
       })
@@ -2098,7 +2117,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "New error found. Fixed. All tests pass. CONFIDENCE_PERCENT: 80",
+        output: "New error found. Fixed.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 80",
         diff: "new fix diff",
         filesChanged: ["src/New.kt"],
       })
@@ -2429,7 +2448,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Fixed the release issue. All tests pass. CONFIDENCE_PERCENT: 85",
+        output: "Fixed the release issue.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 85",
         diff: "--- a/build.gradle\n+++ b/build.gradle\n-version=1.0.0-SNAPSHOT\n+version=1.0.0",
         filesChanged: ["build.gradle"],
       })
@@ -2476,7 +2495,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Fixed something. All tests pass. CONFIDENCE_PERCENT: 80",
+        output: "Fixed something.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 80",
         diff: "some diff",
         filesChanged: ["src/Fix.kt"],
       })
@@ -2510,7 +2529,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Fixed. All tests pass. CONFIDENCE_PERCENT: 90",
+        output: "Fixed.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 90",
         diff: "--- a/src/Fix.kt\n+++ b/src/Fix.kt\n-bug\n+fix",
         filesChanged: ["src/Fix.kt"],
       })
@@ -2562,7 +2581,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Fixed again. All tests pass. CONFIDENCE_PERCENT: 85",
+        output: "Fixed again.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 85",
         diff: "--- a/src/Fix2.kt\n+++ b/src/Fix2.kt\n-old\n+new",
         filesChanged: ["src/Fix2.kt"],
       })
@@ -2715,7 +2734,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "New issue found. Fixed. All tests pass. CONFIDENCE_PERCENT: 80",
+        output: "New issue found. Fixed.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 80",
         diff: "new fix diff content",
         filesChanged: ["src/NewFix.kt"],
       })
@@ -2772,7 +2791,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "New approach. All tests pass. CONFIDENCE_PERCENT: 75",
+        output: "New approach.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 75",
         diff: "alternative diff content",
         filesChanged: ["src/AltFix.kt"],
       })
@@ -2875,7 +2894,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Fixed. CONFIDENCE_PERCENT: 90",
+        output: "Fixed.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 90",
         diff: "tag fix diff",
         filesChanged: ["src/Tag.kt"],
       })
@@ -2914,7 +2933,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "Fixed. All tests pass. CONFIDENCE_PERCENT: 90",
+        output: "Fixed.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 90",
         diff: "some code fix diff",
         filesChanged: ["src/Fix.kt"],
       })
@@ -2988,7 +3007,7 @@ describe("Integration Tests", () => {
 
       claude = new MockClaudeRunner()
       claude.addResult({
-        output: "New fix. All tests pass. CONFIDENCE_PERCENT: 88",
+        output: "New fix.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 88",
         diff: "second failure diff",
         filesChanged: ["src/Second.kt"],
       })
@@ -3071,7 +3090,7 @@ describe("Integration Tests", () => {
       })
       github.setLogs(12345, "Error: test failed")
       claude.addResult({
-        output: "Error reproduced. Fixed. All tests pass. CONFIDENCE_PERCENT: 85",
+        output: "Fixed.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 85",
         diff: "--- a/f.ts\n+++ b/f.ts\n-bug\n+fix",
         filesChanged: ["f.ts"],
       })

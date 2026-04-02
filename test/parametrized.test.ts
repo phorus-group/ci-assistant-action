@@ -434,87 +434,56 @@ describe("Parametrized: Confidence parsing", () => {
   const confidenceCases: [string, string, boolean, ConfidenceStatus, number][] = [
     // [output, diff, hasDiff, expectedStatus, expectedPercent]
     [
-      "Error reproduced. Fixed. All tests pass. CONFIDENCE_PERCENT: 95",
+      "Fixed the bug.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 95",
       "some diff",
       true,
       ConfidenceStatus.REPRODUCED_AND_VERIFIED,
       95,
     ],
     [
-      "Could not reproduce. Made fix anyway. All tests pass. CONFIDENCE_PERCENT: 60",
+      "Could not reproduce but fix looks correct.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 60",
       "some diff",
       true,
       ConfidenceStatus.NOT_REPRODUCED_TESTS_PASS,
       60,
     ],
     [
-      "Error reproduced. Applied fix. Test failure persists. CONFIDENCE_PERCENT: 30",
+      "Reproduced the error but tests still fail.\nREPRODUCED: YES\nVERIFIED: NO\nCONFIDENCE_PERCENT: 30",
       "some diff",
       true,
       ConfidenceStatus.REPRODUCED_TESTS_FAIL,
       30,
     ],
-    ["Made some changes. CONFIDENCE_PERCENT: 40", "some diff", true, ConfidenceStatus.NEITHER, 40],
     [
-      "Infrastructure issue. OOM. ISSUE_TYPE: NON_CODE CONFIDENCE_PERCENT: 80",
+      "Made some changes.\nREPRODUCED: NO\nVERIFIED: NO\nCONFIDENCE_PERCENT: 40",
+      "some diff",
+      true,
+      ConfidenceStatus.NEITHER,
+      40,
+    ],
+    [
+      "Infrastructure issue. OOM.\nISSUE_TYPE: NON_CODE\nCONFIDENCE_PERCENT: 80",
       "",
       false,
       ConfidenceStatus.NON_CODE,
       80,
     ],
-    [
-      "Runner timeout. Network issue. Flaky test. ISSUE_TYPE: NON_CODE",
-      "",
-      false,
-      ConfidenceStatus.NON_CODE,
-      50, // default when no marker
-    ],
+    ["Runner timeout.\nISSUE_TYPE: NON_CODE", "", false, ConfidenceStatus.NON_CODE, 50],
     ["Cannot fix this.", "", false, ConfidenceStatus.GAVE_UP, 0],
     [
-      "CONFIDENCE_PERCENT: 150",
+      "CONFIDENCE_PERCENT: 150\nREPRODUCED: NO\nVERIFIED: NO",
       "diff",
       true,
       ConfidenceStatus.NEITHER,
-      100, // clamped
+      100,
     ],
+    ["No markers at all, just a diff", "diff", true, ConfidenceStatus.NEITHER, 50],
     [
-      "CONFIDENCE_PERCENT: -5",
-      "diff",
-      true,
-      ConfidenceStatus.NEITHER,
-      50, // regex doesn't match negative, defaults to 50
-    ],
-    // Tests pass detection when no CONFIDENCE_PERCENT marker (checks full output, not just last char)
-    [
-      "Error reproduced. Applied fix. All tests pass.",
+      "Build is successful. Dependency versions are correct.\nREPRODUCED: NO\nVERIFIED: YES\nCONFIDENCE_PERCENT: 90",
       "some diff",
       true,
-      ConfidenceStatus.REPRODUCED_AND_VERIFIED,
-      50, // default when no CONFIDENCE_PERCENT marker
-    ],
-    // No CONFIDENCE_PERCENT marker + "test failure" in output should detect failure across full output
-    [
-      "Test failure initially. Error reproduced. Applied fix. All tests pass now.",
-      "some diff",
-      true,
-      ConfidenceStatus.REPRODUCED_TESTS_FAIL,
-      50, // no marker => 50 default. "test failure" found in full output negates testsPass
-    ],
-    // Early "test failure" before CONFIDENCE_PERCENT is ignored (only checks after marker)
-    [
-      "Initial test failure. Error reproduced. Fixed. All tests pass. CONFIDENCE_PERCENT: 85",
-      "some diff",
-      true,
-      ConfidenceStatus.REPRODUCED_AND_VERIFIED,
-      85,
-    ],
-    // "test failure" after CONFIDENCE_PERCENT means tests don't actually pass
-    [
-      "Error reproduced. All tests pass. CONFIDENCE_PERCENT: 70 but then test failure occurred",
-      "some diff",
-      true,
-      ConfidenceStatus.REPRODUCED_TESTS_FAIL,
-      70,
+      ConfidenceStatus.NOT_REPRODUCED_TESTS_PASS,
+      90,
     ],
   ]
 

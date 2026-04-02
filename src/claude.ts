@@ -274,12 +274,10 @@ export function formatStreamEvent(event: StreamEvent): string | null {
       const parts: string[] = []
       for (const c of event.message?.content ?? []) {
         if (c.type === "text" && c.text) {
-          const text = c.text.length > 500 ? c.text.slice(0, 500) + "..." : c.text
-          parts.push(`[${LogPrefix.CLAUDE}] ${text}`)
+          parts.push(`[${LogPrefix.CLAUDE}] ${c.text}`)
         } else if (c.type === "tool_use" && c.name) {
           const input = JSON.stringify(c.input ?? {})
-          const short = input.length > 150 ? input.slice(0, 150) + "..." : input
-          parts.push(`[${LogPrefix.TOOL}] ${c.name}: ${short}`)
+          parts.push(`[${LogPrefix.TOOL}] ${c.name}: ${input}`)
         }
       }
       return parts.length > 0 ? parts.join("\n") : null
@@ -505,7 +503,7 @@ export class RealGitOperations implements GitOperations {
     if (result.exitCode !== 0) {
       logError(LogPrefix.GIT, `applyDiff failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
       // Log first 500 chars of diff for context
-      log(LogPrefix.GIT, `diff preview:\n${diff.slice(0, 500)}`)
+      log(LogPrefix.GIT, `diff that failed to apply:\n${diff}`)
       throw new Error(`git apply failed with exit code ${result.exitCode}`)
     }
   }
@@ -569,14 +567,17 @@ export async function runWithRetries(
       const previousAttemptsContext = attempts
         .map(
           (a) =>
-            `Attempt ${a.attempt}: modified ${a.filesChanged.join(", ") || "no files"} - ${a.testOutput || "no test output"}`
+            `Attempt ${a.attempt}: modified ${a.filesChanged.join(", ") || "no files"}. Full output saved to ${a.outputFile}.`
         )
         .join("\n")
 
+      const prevAttempt = attempts[i - 2]
       prompt = renderPrompt(inputs.retryPrompt, {
         ...commonValues,
         PREVIOUS_ATTEMPTS: previousAttemptsContext,
-        REPRODUCTION_OUTPUT: attempts[i - 2]?.reproductionOutput || "",
+        REPRODUCTION_OUTPUT: prevAttempt?.outputFile
+          ? `Previous attempt output saved to ${prevAttempt.outputFile}. Read it for reproduction details.`
+          : "",
       })
     }
 
@@ -604,25 +605,34 @@ export async function runWithRetries(
 
     const confidence = parseConfidence(result.output, result.diff, result.exitCode)
 
+    // Write full Claude output per attempt so retries can reference it
+    const outputFile = writeContextFile(
+      inputs.workingDirectory,
+      `attempt-${i}-output.txt`,
+      result.output
+    )
+
     attempts.push({
       attempt: i,
       diff: result.diff || null,
       filesChanged: result.filesChanged,
       testOutput: extractTestOutput(result.output),
       reproductionOutput: extractReproductionOutput(result.output),
+      outputFile,
       confidence,
     })
 
     // Stop retrying if the fix is good enough:
-    // - REPRODUCED_AND_VERIFIED: always stop (best possible outcome).
-    // - NOT_REPRODUCED_TESTS_PASS with high confidence: the error couldn't be
-    //   reproduced locally (e.g. Trivy vulnerability scan, infra-only checks)
-    //   but tests pass and Claude is confident in the fix.
+    // - REPRODUCED_AND_VERIFIED: always stop.
+    // - NOT_REPRODUCED_TESTS_PASS with >= 70% confidence.
+    // - NEITHER with >= 80% confidence: fallback for when markers are missing
+    //   or the verification doesn't fit neatly into reproduced/verified categories.
     const shouldStop =
       confidence &&
       (confidence.status === ConfidenceStatus.REPRODUCED_AND_VERIFIED ||
         (confidence.status === ConfidenceStatus.NOT_REPRODUCED_TESTS_PASS &&
-          confidence.percentage >= 70))
+          confidence.percentage >= 70) ||
+        (confidence.status === ConfidenceStatus.NEITHER && confidence.percentage >= 80))
     if (shouldStop) {
       log(
         LogPrefix.RETRY,
@@ -706,16 +716,12 @@ export function parseConfidence(output: string, diff: string, _exitCode: number)
   const percentMatch = output.match(/CONFIDENCE_PERCENT:\s*(\d+)/)
   const percentage = percentMatch ? Math.min(100, Math.max(0, parseInt(percentMatch[1]))) : 50
 
-  const reproduced =
-    /reproduced|error reproduced|successfully reproduced/i.test(output) &&
-    !/could not reproduce|unable to reproduce|cannot reproduce/i.test(output)
+  // Parse structured markers from Claude's output
+  const reproducedMatch = output.match(/REPRODUCED:\s*(YES|NO)/i)
+  const verifiedMatch = output.match(/VERIFIED:\s*(YES|NO)/i)
 
-  const confidenceIdx = output.lastIndexOf("CONFIDENCE_PERCENT")
-  const outputAfterConfidence = confidenceIdx >= 0 ? output.slice(confidenceIdx) : output
-
-  const testsPass =
-    /tests? pass|all tests? pass|build success|verification success/i.test(output) &&
-    !/tests? fail|test failure|build fail/i.test(outputAfterConfidence)
+  const reproduced = reproducedMatch ? reproducedMatch[1].toUpperCase() === "YES" : false
+  const testsPass = verifiedMatch ? verifiedMatch[1].toUpperCase() === "YES" : false
 
   if (!diff || diff.length === 0) {
     if (/ISSUE_TYPE:\s*NON_CODE/i.test(output)) {
@@ -770,7 +776,7 @@ function extractTestOutput(output: string): string | null {
   for (const pattern of testPatterns) {
     const match = output.match(pattern)
     if (match) {
-      return match[0].slice(0, 1000)
+      return match[0]
     }
   }
 
@@ -786,7 +792,7 @@ function extractReproductionOutput(output: string): string | null {
   for (const pattern of reproPatterns) {
     const match = output.match(pattern)
     if (match) {
-      return match[0].slice(0, 1000)
+      return match[0]
     }
   }
 

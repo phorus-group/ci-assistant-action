@@ -235,13 +235,6 @@ export class OctokitGitHubClient implements GitHubClient {
         }
       }
 
-      // Cap at 1MB since logs are written to a file that Claude reads on demand
-      // (not embedded in the prompt). Claude's Read tool handles large files via offset/limit.
-      const maxLogSize = 1024 * 1024
-      if (logs.length > maxLogSize) {
-        logs = "[...truncated, showing last 1MB...]\n" + logs.slice(logs.length - maxLogSize)
-      }
-
       return logs
     } catch (error) {
       logWarning(LogPrefix.CONTEXT, `Failed to download logs for run ${runId}: ${error}`)
@@ -268,13 +261,7 @@ export class OctokitGitHubClient implements GitHubClient {
             repo: this.repo,
             job_id: job.id,
           })
-          let logs = String(logData)
-          // Cap per-job logs at 1MB
-          const maxLogSize = 1024 * 1024
-          if (logs.length > maxLogSize) {
-            logs = "[...truncated, showing last 1MB...]\n" + logs.slice(logs.length - maxLogSize)
-          }
-          results.push({ name: job.name, logs })
+          results.push({ name: job.name, logs: String(logData) })
         } catch {
           results.push({ name: job.name, logs: "(logs unavailable)" })
         }

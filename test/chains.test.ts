@@ -122,7 +122,7 @@ function env(ctx: StepContext, overrides: Record<string, string>): void {
 function claudeSuccess(ctx: StepContext, confidence = 85, file = "src/Fix.kt"): void {
   ctx.claude = new MockClaudeRunner()
   ctx.claude.addResult({
-    output: `Error reproduced. Fixed. All tests pass. CONFIDENCE_PERCENT: ${confidence}`,
+    output: `Fixed.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: ${confidence}`,
     diff: `--- a/${file}\n+++ b/${file}\n-bug\n+fix-${Date.now()}`,
     filesChanged: [file],
   })

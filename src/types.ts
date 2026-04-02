@@ -89,6 +89,7 @@ export interface RetryAttempt {
   testOutput: string | null
   reproductionOutput: string | null
   confidence: ConfidenceResult | null
+  outputFile: string | null
 }
 
 export interface ParsedCommand {
