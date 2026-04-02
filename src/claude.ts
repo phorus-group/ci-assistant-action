@@ -129,26 +129,53 @@ export class RealGitOperations implements GitOperations {
   }
 
   async resetHard(): Promise<void> {
-    await exec.exec("git", ["checkout", "--", "."], {
+    core.info("[git] resetHard: git checkout -- .")
+    const result = await exec.getExecOutput("git", ["checkout", "--", "."], {
       cwd: this.cwd,
       silent: true,
+      ignoreReturnCode: true,
     })
+    if (result.exitCode !== 0) {
+      core.error(`[git] resetHard failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
+      // Log git status for context
+      const status = await exec.getExecOutput("git", ["status", "--short"], {
+        cwd: this.cwd,
+        silent: true,
+        ignoreReturnCode: true,
+      })
+      core.info(`[git] status after failed resetHard:\n${status.stdout.trim()}`)
+      throw new Error(`git checkout -- . failed with exit code ${result.exitCode}`)
+    }
   }
 
   async clean(): Promise<void> {
-    await exec.exec("git", ["clean", "-fd"], {
+    core.info("[git] clean: git clean -fd")
+    const result = await exec.getExecOutput("git", ["clean", "-fd"], {
       cwd: this.cwd,
       silent: true,
+      ignoreReturnCode: true,
     })
+    if (result.exitCode !== 0) {
+      core.error(`[git] clean failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
+      throw new Error(`git clean -fd failed with exit code ${result.exitCode}`)
+    }
   }
 
   async applyDiff(diff: string): Promise<void> {
     if (!diff) return
-    await exec.exec("git", ["apply"], {
+    core.info(`[git] applyDiff: git apply (${diff.length} bytes)`)
+    const result = await exec.getExecOutput("git", ["apply"], {
       cwd: this.cwd,
       silent: true,
+      ignoreReturnCode: true,
       input: Buffer.from(diff),
     })
+    if (result.exitCode !== 0) {
+      core.error(`[git] applyDiff failed (exit ${result.exitCode}): ${result.stderr.trim()}`)
+      // Log first 500 chars of diff for context
+      core.info(`[git] diff preview:\n${diff.slice(0, 500)}`)
+      throw new Error(`git apply failed with exit code ${result.exitCode}`)
+    }
   }
 }
 
