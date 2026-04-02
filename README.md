@@ -339,7 +339,7 @@ CI Assistant state on regular PRs (meta comments) is not reset during cleanup. S
 
 ### Retry behavior
 
-Each auto-fix or command-triggered fix runs up to `max-retries` attempts (default: 3). Each attempt gets a fresh `max-turns` budget (default: 50 Claude conversation turns, use `-1` for unlimited). The working directory is reset between attempts, and context about what previous attempts tried is passed to subsequent ones. The loop stops early when a strong fix is found: either reproduced and verified, or tests pass with ≥70% confidence (covers cases like vulnerability fixes where the error can't be reproduced locally).
+Each auto-fix or command-triggered fix runs up to `max-retries` attempts (default: 3). Each attempt gets a fresh `max-turns` budget (default: 50 Claude conversation turns, use `-1` for unlimited). The working directory is reset between attempts, and context about what previous attempts tried is passed to subsequent ones. The loop stops early when a good enough fix is found: either reproduced and verified, or tests pass and Claude reports ≥70% overall confidence.
 
 <details>
 <summary>Detailed flow</summary>

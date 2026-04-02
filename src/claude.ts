@@ -330,7 +330,7 @@ export async function runWithRetries(
       confidence,
     })
 
-    // Stop retrying if the fix is strong enough:
+    // Stop retrying if the fix is good enough:
     // - REPRODUCED_AND_VERIFIED: always stop (best possible outcome).
     // - NOT_REPRODUCED_TESTS_PASS with high confidence: the error couldn't be
     //   reproduced locally (e.g. Trivy vulnerability scan, infra-only checks)
