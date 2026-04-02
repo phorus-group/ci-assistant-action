@@ -33,30 +33,82 @@ export interface ClaudeUsage {
   durationMs: number
 }
 
-export function parseJsonOutput(stdout: string): { text: string; usage: ClaudeUsage | null } {
-  const trimmed = stdout.trim()
-  if (!trimmed.startsWith("{")) {
-    return { text: stdout, usage: null }
+export interface StreamEvent {
+  type: string
+  subtype?: string
+  result?: string
+  message?: {
+    content?: { type: string; text?: string; name?: string; input?: Record<string, unknown> }[]
   }
+  usage?: Record<string, unknown>
+  num_turns?: number
+  duration_ms?: number
+}
 
+export function parseStreamEvent(line: string): StreamEvent | null {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith("{")) return null
   try {
-    const json = JSON.parse(trimmed)
-    const text = json.result ?? stdout
-    const u = json.usage
-    const usage: ClaudeUsage | null = u
-      ? {
-          inputTokens: u.input_tokens ?? 0,
-          outputTokens: u.output_tokens ?? 0,
-          cacheReadTokens: u.cache_read_input_tokens ?? 0,
-          cacheCreationTokens: u.cache_creation_input_tokens ?? 0,
-          numTurns: json.num_turns ?? 0,
-          durationMs: json.duration_ms ?? 0,
-        }
-      : null
-    return { text: String(text), usage }
+    return JSON.parse(trimmed) as StreamEvent
   } catch {
-    return { text: stdout, usage: null }
+    return null
   }
+}
+
+export function formatStreamEvent(event: StreamEvent): string | null {
+  switch (event.type) {
+    case "system":
+      return null // skip init noise
+
+    case "assistant": {
+      const parts: string[] = []
+      for (const c of event.message?.content ?? []) {
+        if (c.type === "text" && c.text) {
+          parts.push(`[claude] ${c.text.length > 500 ? c.text.slice(0, 500) + "..." : c.text}`)
+        } else if (c.type === "tool_use" && c.name) {
+          const input = JSON.stringify(c.input ?? {})
+          const short = input.length > 150 ? input.slice(0, 150) + "..." : input
+          parts.push(`[tool] ${c.name}: ${short}`)
+        }
+      }
+      return parts.length > 0 ? parts.join("\n") : null
+    }
+
+    case "result": {
+      const u = event.usage
+      if (!u)
+        return `[done] turns=${event.num_turns ?? 0} ${((event.duration_ms ?? 0) / 1000).toFixed(1)}s`
+      return (
+        `[done] turns=${event.num_turns ?? 0}` +
+        ` in=${u.input_tokens ?? 0} out=${u.output_tokens ?? 0}` +
+        ` cache_read=${u.cache_read_input_tokens ?? 0}` +
+        ` cache_create=${u.cache_creation_input_tokens ?? 0}` +
+        ` ${((event.duration_ms ?? 0) / 1000).toFixed(1)}s`
+      )
+    }
+
+    default:
+      return null // skip rate_limit_event, user (tool results), etc.
+  }
+}
+
+export function parseResultEvent(event: StreamEvent): {
+  text: string
+  usage: ClaudeUsage | null
+} {
+  const text = event.result ?? ""
+  const u = event.usage
+  const usage: ClaudeUsage | null = u
+    ? {
+        inputTokens: (u.input_tokens as number) ?? 0,
+        outputTokens: (u.output_tokens as number) ?? 0,
+        cacheReadTokens: (u.cache_read_input_tokens as number) ?? 0,
+        cacheCreationTokens: (u.cache_creation_input_tokens as number) ?? 0,
+        numTurns: event.num_turns ?? 0,
+        durationMs: event.duration_ms ?? 0,
+      }
+    : null
+  return { text, usage }
 }
 
 export class CliClaudeRunner implements ClaudeRunner {
@@ -99,7 +151,7 @@ export class CliClaudeRunner implements ClaudeRunner {
     if (this.appendSystemPrompt) {
       args.push("--append-system-prompt", this.appendSystemPrompt)
     }
-    args.push("--output-format", "json", "--print", "-p", prompt)
+    args.push("--output-format", "stream-json", "--verbose", "--print", "-p", prompt)
     return args
   }
 
@@ -111,29 +163,39 @@ export class CliClaudeRunner implements ClaudeRunner {
     try {
       const args = this.buildArgs(prompt, model, maxTurns)
 
+      // Stream events in real time so the Actions log shows progress.
+      // The prompt (with embedded failure logs) is never in the stream,
+      // only Claude's responses and tool usage appear.
+      let resultEvent: StreamEvent | null = null
+
       const result = await exec.getExecOutput("claude", args, {
         cwd: this.workingDirectory,
         silent: true,
         ignoreReturnCode: true,
         env: process.env as Record<string, string>,
+        listeners: {
+          stdline: (line: string) => {
+            const event = parseStreamEvent(line)
+            if (!event) return
+            if (event.type === "result") {
+              resultEvent = event
+            }
+            const formatted = formatStreamEvent(event)
+            if (formatted) {
+              core.info(formatted)
+            }
+          },
+        },
       })
       exitCode = result.exitCode
 
-      // Parse JSON output to extract response text and usage stats
-      const parsed = parseJsonOutput(result.stdout)
-      output = parsed.text + result.stderr
-      usage = parsed.usage
-
-      // Log only Claude's response, not the prompt (which embeds verbose failure logs)
-      if (parsed.text.trim()) {
-        core.info(parsed.text.trim())
-      }
-      if (usage) {
-        const cached = usage.cacheReadTokens + usage.cacheCreationTokens
-        const duration = (usage.durationMs / 1000).toFixed(1)
-        core.info(
-          `[usage] In: ${usage.inputTokens} | Out: ${usage.outputTokens} | Cache: ${cached} (${usage.cacheReadTokens} read, ${usage.cacheCreationTokens} created) | Turns: ${usage.numTurns} | ${duration}s`
-        )
+      if (resultEvent) {
+        const parsed = parseResultEvent(resultEvent)
+        output = parsed.text
+        usage = parsed.usage
+      } else {
+        // Fallback: no result event found, use raw stdout
+        output = result.stdout + result.stderr
       }
     } catch (error) {
       output = String(error)

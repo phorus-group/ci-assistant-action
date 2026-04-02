@@ -7,13 +7,7 @@ import {
 } from "../src/commands"
 import { checkForExploitation } from "../src/security"
 import * as exec from "@actions/exec"
-import {
-  parseConfidence,
-  generateFixId,
-  renderPrompt,
-  parseJsonOutput,
-  CliClaudeRunner,
-} from "../src/claude"
+import { parseConfidence, generateFixId, renderPrompt, CliClaudeRunner } from "../src/claude"
 import {
   Command,
   State,
@@ -896,12 +890,13 @@ describe("Parametrized: CliClaudeRunner.buildArgs", () => {
     expect(args).not.toContain("--append-system-prompt")
   })
 
-  it("includes --output-format json", () => {
+  it("includes --output-format stream-json --verbose for real-time streaming", () => {
     const runner = new CliClaudeRunner(".")
     const args = runner.buildArgs("test", "model", 10)
     const idx = args.indexOf("--output-format")
     expect(idx).toBeGreaterThan(-1)
-    expect(args[idx + 1]).toBe("json")
+    expect(args[idx + 1]).toBe("stream-json")
+    expect(args).toContain("--verbose")
   })
 })
 
@@ -912,6 +907,22 @@ describe("Parametrized: CliClaudeRunner.run", () => {
   const mockGetExecOutput = exec.getExecOutput as jest.Mock
   const mockExec = exec.exec as jest.Mock
 
+  function makeStreamOutput(resultText: string): string {
+    const resultEvent = JSON.stringify({
+      type: "result",
+      result: resultText,
+      num_turns: 1,
+      duration_ms: 1000,
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+    })
+    return resultEvent + "\n"
+  }
+
   beforeEach(() => {
     mockGetExecOutput.mockReset()
     mockExec.mockReset().mockResolvedValue(0)
@@ -921,8 +932,12 @@ describe("Parametrized: CliClaudeRunner.run", () => {
     const fakeDiff = "diff --git a/f.ts b/f.ts\n--- a/f.ts\n+++ b/f.ts\n@@ -1 +1 @@\n-old\n+new\n"
 
     mockGetExecOutput
-      // claude call
-      .mockResolvedValueOnce({ stdout: '{"result":"done"}', stderr: "", exitCode: 0 })
+      .mockImplementationOnce((_cmd: string, _args: string[], opts: Record<string, unknown>) => {
+        const listeners = opts.listeners as { stdline?: (line: string) => void }
+        // Simulate stream events
+        listeners.stdline?.(makeStreamOutput("done").trim())
+        return Promise.resolve({ stdout: makeStreamOutput("done"), stderr: "", exitCode: 0 })
+      })
       // git diff --staged
       .mockResolvedValueOnce({ stdout: fakeDiff, stderr: "", exitCode: 0 })
       // git diff --staged --name-only
@@ -937,7 +952,15 @@ describe("Parametrized: CliClaudeRunner.run", () => {
 
   it("returns empty diff when no changes are staged", async () => {
     mockGetExecOutput
-      .mockResolvedValueOnce({ stdout: '{"result":"no changes needed"}', stderr: "", exitCode: 0 })
+      .mockImplementationOnce((_cmd: string, _args: string[], opts: Record<string, unknown>) => {
+        const listeners = opts.listeners as { stdline?: (line: string) => void }
+        listeners.stdline?.(makeStreamOutput("no changes needed").trim())
+        return Promise.resolve({
+          stdout: makeStreamOutput("no changes needed"),
+          stderr: "",
+          exitCode: 0,
+        })
+      })
       .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 })
       .mockResolvedValueOnce({ stdout: "", stderr: "", exitCode: 0 })
 
@@ -946,48 +969,36 @@ describe("Parametrized: CliClaudeRunner.run", () => {
 
     expect(result.diff).toBe("")
   })
-})
 
-// ============================
-// JSON Output Parsing
-// ============================
-describe("Parametrized: parseJsonOutput", () => {
-  it("extracts text and usage from Claude CLI JSON output", () => {
-    const json = JSON.stringify({
-      type: "result",
-      result: "Fixed the bug. CONFIDENCE_PERCENT: 85",
-      num_turns: 3,
-      duration_ms: 15000,
-      usage: {
-        input_tokens: 1500,
-        output_tokens: 300,
-        cache_read_input_tokens: 5000,
-        cache_creation_input_tokens: 2000,
-      },
-    })
-    const parsed = parseJsonOutput(json)
-    expect(parsed.text).toBe("Fixed the bug. CONFIDENCE_PERCENT: 85")
-    expect(parsed.usage).toEqual({
-      inputTokens: 1500,
-      outputTokens: 300,
-      cacheReadTokens: 5000,
-      cacheCreationTokens: 2000,
-      numTurns: 3,
-      durationMs: 15000,
-    })
-  })
+  it("extracts usage from stream result event", async () => {
+    mockGetExecOutput
+      .mockImplementationOnce((_cmd: string, _args: string[], opts: Record<string, unknown>) => {
+        const listeners = opts.listeners as { stdline?: (line: string) => void }
+        const resultEvent = JSON.stringify({
+          type: "result",
+          result: "Fixed. CONFIDENCE_PERCENT: 85",
+          num_turns: 3,
+          duration_ms: 15000,
+          usage: {
+            input_tokens: 1500,
+            output_tokens: 300,
+            cache_read_input_tokens: 5000,
+            cache_creation_input_tokens: 2000,
+          },
+        })
+        listeners.stdline?.(resultEvent)
+        return Promise.resolve({ stdout: resultEvent + "\n", stderr: "", exitCode: 0 })
+      })
+      .mockResolvedValueOnce({ stdout: "diff --git a/f.ts b/f.ts\n", stderr: "", exitCode: 0 })
+      .mockResolvedValueOnce({ stdout: "f.ts\n", stderr: "", exitCode: 0 })
 
-  it("returns null usage when CLI returns JSON without usage field", () => {
-    const json = JSON.stringify({ result: "Hello" })
-    const parsed = parseJsonOutput(json)
-    expect(parsed.text).toBe("Hello")
-    expect(parsed.usage).toBeNull()
-  })
+    const runner = new CliClaudeRunner(".")
+    const result = await runner.run("fix", "model", 10)
 
-  it("falls back to raw stdout when CLI output is not JSON", () => {
-    const raw = "Error reproduced. All tests pass. CONFIDENCE_PERCENT: 90"
-    const parsed = parseJsonOutput(raw)
-    expect(parsed.text).toBe(raw)
-    expect(parsed.usage).toBeNull()
+    expect(result.output).toContain("CONFIDENCE_PERCENT: 85")
+    expect(result.usage).not.toBeNull()
+    expect(result.usage!.inputTokens).toBe(1500)
+    expect(result.usage!.outputTokens).toBe(300)
+    expect(result.usage!.numTurns).toBe(3)
   })
 })

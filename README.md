@@ -82,6 +82,7 @@ Interact through PR comment commands to accept, refine, or request alternative f
   - [Tag failure note](#tag-failure-note)
   - [Pushed-directly note](#pushed-directly-note)
 - [Failure log handling](#failure-log-handling)
+- [CI output and streaming](#ci-output-and-streaming)
 - [Non-code failures](#non-code-failures)
 - [Fix ID format](#fix-id-format)
 - [GitHub permissions](#github-permissions)
@@ -987,6 +988,20 @@ The action downloads logs from the GitHub API by listing failed jobs for the wor
 - If no `failed-run-id` is provided, returns "No failure logs available."
 
 In command mode, if `failed-run-id` is not provided as an input, the action reads `lastRunId` from the meta comment (stored during the initial auto-fix run). The branch and SHA are also populated from the meta comment or from the PR's head ref/sha.
+
+## CI output and streaming
+
+The action uses `--output-format stream-json --verbose` when invoking Claude Code. This streams structured events in real time to the GitHub Actions log, so you can see what Claude is doing without waiting for the full run to complete:
+
+```
+[tool] Read: {"file_path": "build.gradle.kts"}
+[tool] Edit: {"file_path": "build.gradle.kts", "old_string": "...", "new_string": "..."}
+[tool] Bash: {"command": "./gradlew test"}
+[claude] Fixed the vulnerability by upgrading netty to 4.2.11.Final
+[done] turns=3 in=1500 out=300 cache_read=5000 cache_create=2000 15.2s
+```
+
+The prompt, which contains failure logs, metadata, and high-verbosity information, is never shown in the stream. Only Claude's responses and tool usage appear. Token usage is logged per attempt and as a total across all attempts. In command mode, the user's input is also logged for audit purposes.
 
 ## Non-code failures
 
