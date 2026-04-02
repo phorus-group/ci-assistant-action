@@ -12,6 +12,51 @@ export interface ClaudeResult {
   exitCode: number
   diff: string
   filesChanged: string[]
+  usage: ClaudeUsage | null
+}
+
+export interface TotalUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  attempts: number
+  durationMs: number
+}
+
+export interface ClaudeUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  numTurns: number
+  durationMs: number
+}
+
+export function parseJsonOutput(stdout: string): { text: string; usage: ClaudeUsage | null } {
+  const trimmed = stdout.trim()
+  if (!trimmed.startsWith("{")) {
+    return { text: stdout, usage: null }
+  }
+
+  try {
+    const json = JSON.parse(trimmed)
+    const text = json.result ?? stdout
+    const u = json.usage
+    const usage: ClaudeUsage | null = u
+      ? {
+          inputTokens: u.input_tokens ?? 0,
+          outputTokens: u.output_tokens ?? 0,
+          cacheReadTokens: u.cache_read_input_tokens ?? 0,
+          cacheCreationTokens: u.cache_creation_input_tokens ?? 0,
+          numTurns: json.num_turns ?? 0,
+          durationMs: json.duration_ms ?? 0,
+        }
+      : null
+    return { text: String(text), usage }
+  } catch {
+    return { text: stdout, usage: null }
+  }
 }
 
 export class CliClaudeRunner implements ClaudeRunner {
@@ -54,13 +99,14 @@ export class CliClaudeRunner implements ClaudeRunner {
     if (this.appendSystemPrompt) {
       args.push("--append-system-prompt", this.appendSystemPrompt)
     }
-    args.push("--print", "-p", prompt)
+    args.push("--output-format", "json", "--print", "-p", prompt)
     return args
   }
 
   async run(prompt: string, model: string, maxTurns: number): Promise<ClaudeResult> {
     let output = ""
     let exitCode = 0
+    let usage: ClaudeUsage | null = null
 
     try {
       const args = this.buildArgs(prompt, model, maxTurns)
@@ -71,12 +117,23 @@ export class CliClaudeRunner implements ClaudeRunner {
         ignoreReturnCode: true,
         env: process.env as Record<string, string>,
       })
-      output = result.stdout + result.stderr
       exitCode = result.exitCode
 
+      // Parse JSON output to extract response text and usage stats
+      const parsed = parseJsonOutput(result.stdout)
+      output = parsed.text + result.stderr
+      usage = parsed.usage
+
       // Log only Claude's response, not the prompt (which embeds verbose failure logs)
-      if (result.stdout.trim()) {
-        core.info(result.stdout.trim())
+      if (parsed.text.trim()) {
+        core.info(parsed.text.trim())
+      }
+      if (usage) {
+        const cached = usage.cacheReadTokens + usage.cacheCreationTokens
+        const duration = (usage.durationMs / 1000).toFixed(1)
+        core.info(
+          `[usage] In: ${usage.inputTokens} | Out: ${usage.outputTokens} | Cache: ${cached} (${usage.cacheReadTokens} read, ${usage.cacheCreationTokens} created) | Turns: ${usage.numTurns} | ${duration}s`
+        )
       }
     } catch (error) {
       output = String(error)
@@ -111,7 +168,7 @@ export class CliClaudeRunner implements ClaudeRunner {
       ignoreReturnCode: true,
     })
 
-    return { output, exitCode, diff, filesChanged }
+    return { output, exitCode, diff, filesChanged, usage }
   }
 }
 
@@ -189,8 +246,13 @@ export async function runWithRetries(
   model: string,
   commandPrompt?: string,
   conversationHistory?: string
-): Promise<{ bestAttempt: RetryAttempt; allAttempts: RetryAttempt[] }> {
+): Promise<{ bestAttempt: RetryAttempt; allAttempts: RetryAttempt[]; totalUsage: TotalUsage }> {
   const attempts: RetryAttempt[] = []
+  let totalInputTokens = 0
+  let totalOutputTokens = 0
+  let totalCacheReadTokens = 0
+  let totalCacheCreationTokens = 0
+  let totalDurationMs = 0
 
   for (let i = 1; i <= inputs.maxRetries; i++) {
     core.info(`Fix attempt ${i}/${inputs.maxRetries}...`)
@@ -249,6 +311,14 @@ export async function runWithRetries(
 
     const result = await runner.run(prompt, model, inputs.maxTurns)
 
+    if (result.usage) {
+      totalInputTokens += result.usage.inputTokens
+      totalOutputTokens += result.usage.outputTokens
+      totalCacheReadTokens += result.usage.cacheReadTokens
+      totalCacheCreationTokens += result.usage.cacheCreationTokens
+      totalDurationMs += result.usage.durationMs
+    }
+
     const confidence = parseConfidence(result.output, result.diff, result.exitCode)
 
     attempts.push({
@@ -291,7 +361,22 @@ export async function runWithRetries(
     await git.applyDiff(bestAttempt.diff)
   }
 
-  return { bestAttempt, allAttempts: attempts }
+  const totalUsage: TotalUsage = {
+    inputTokens: totalInputTokens,
+    outputTokens: totalOutputTokens,
+    cacheReadTokens: totalCacheReadTokens,
+    cacheCreationTokens: totalCacheCreationTokens,
+    attempts: attempts.length,
+    durationMs: totalDurationMs,
+  }
+
+  if (totalInputTokens > 0 || totalOutputTokens > 0) {
+    core.info(
+      `[usage] Total across ${attempts.length} attempt(s): In: ${totalInputTokens} | Out: ${totalOutputTokens}`
+    )
+  }
+
+  return { bestAttempt, allAttempts: attempts, totalUsage }
 }
 
 export function selectBestAttempt(attempts: RetryAttempt[]): RetryAttempt {

@@ -16,6 +16,7 @@ jest.mock("@actions/core", () => ({
     return process.env[key] || ""
   }),
   setFailed: jest.fn(),
+  setOutput: jest.fn(),
   info: jest.fn(),
   warning: jest.fn(),
   summary: {

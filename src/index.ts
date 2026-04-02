@@ -48,6 +48,7 @@ import {
   renderPrompt,
   ClaudeRunner,
   GitOperations,
+  TotalUsage,
 } from "./claude"
 import {
   HttpSlackClient,
@@ -435,7 +436,7 @@ async function handleAutoFix(
     })
   const git = gitOpsParam || new RealGitOperations(inputs.workingDirectory)
 
-  const { bestAttempt } = await runWithRetries(
+  const { bestAttempt, totalUsage } = await runWithRetries(
     runner,
     git,
     inputs,
@@ -446,6 +447,7 @@ async function handleAutoFix(
     undefined,
     conversationHistory
   )
+  setUsageOutputs(totalUsage)
 
   const confidence: ConfidenceResult = bestAttempt.confidence || {
     status: ConfidenceStatus.GAVE_UP,
@@ -524,6 +526,7 @@ async function handleAutoFix(
   if (confidence.status === ConfidenceStatus.NON_CODE) {
     meta.state = State.NON_CODE
     meta.gaveUp = false
+    setResultOutputs({ outcome: "non-code", fixId: "", confidence, prNumber })
 
     // Non-code issues: post on existing PR, but do NOT create a new ci-assistant PR
     // (a branch with no code changes serves no purpose)
@@ -565,6 +568,7 @@ async function handleAutoFix(
   } else if (bestAttempt.diff && bestAttempt.diff.length > 0) {
     // Code fix found
     const fixId = generateFixId(bestAttempt.diff)
+    setResultOutputs({ outcome: "fix-suggested", fixId, confidence, prNumber })
 
     await ensureCiAssistantPr()
 
@@ -637,6 +641,7 @@ async function handleAutoFix(
     // Gave up: post on existing PR, but do NOT create a new ci-assistant PR
     meta.state = State.GAVE_UP
     meta.gaveUp = true
+    setResultOutputs({ outcome: "gave-up", fixId: "", confidence, prNumber })
 
     if (prNumber > 0) {
       await github.createComment(
@@ -1052,7 +1057,7 @@ async function handleFixCommand(
   }
   // RETRY uses autoFixPrompt for the first attempt (same as auto-fix)
 
-  const { bestAttempt } = await runWithRetries(
+  const { bestAttempt, totalUsage } = await runWithRetries(
     runner,
     git,
     inputs,
@@ -1063,6 +1068,7 @@ async function handleFixCommand(
     commandPrompt,
     conversationHistory
   )
+  setUsageOutputs(totalUsage)
 
   const confidence: ConfidenceResult = bestAttempt.confidence || {
     status: ConfidenceStatus.GAVE_UP,
@@ -1081,6 +1087,7 @@ async function handleFixCommand(
   if (confidence.status === ConfidenceStatus.NON_CODE) {
     // Non-code issue detected
     meta.state = State.NON_CODE
+    setResultOutputs({ outcome: "non-code", fixId: "", confidence, prNumber })
     meta.gaveUp = false
 
     await github.createComment(
@@ -1112,6 +1119,7 @@ async function handleFixCommand(
   } else if (bestAttempt.diff && bestAttempt.diff.length > 0) {
     // Code fix found
     const fixId = generateFixId(bestAttempt.diff)
+    setResultOutputs({ outcome: "fix-suggested", fixId, confidence, prNumber })
     await createFixRef(prNumber, fixId)
 
     meta.state = State.ACTIVE
@@ -1150,6 +1158,7 @@ async function handleFixCommand(
     // Gave up
     meta.state = State.GAVE_UP
     meta.gaveUp = true
+    setResultOutputs({ outcome: "gave-up", fixId: "", confidence, prNumber })
 
     await github.createComment(
       prNumber,
@@ -1179,6 +1188,28 @@ function extractSummary(attempt: RetryAttempt): string {
     return lines.join("\n")
   }
   return `Modified ${attempt.filesChanged.length} file(s): ${attempt.filesChanged.join(", ")}`
+}
+
+function setUsageOutputs(usage: TotalUsage): void {
+  core.setOutput("total-input-tokens", usage.inputTokens.toString())
+  core.setOutput("total-output-tokens", usage.outputTokens.toString())
+  core.setOutput("total-cache-read-tokens", usage.cacheReadTokens.toString())
+  core.setOutput("total-cache-creation-tokens", usage.cacheCreationTokens.toString())
+  core.setOutput("total-attempts", usage.attempts.toString())
+  core.setOutput("total-duration-ms", usage.durationMs.toString())
+}
+
+function setResultOutputs(params: {
+  outcome: string
+  fixId: string
+  confidence: ConfidenceResult
+  prNumber: number
+}): void {
+  core.setOutput("outcome", params.outcome)
+  core.setOutput("fix-id", params.fixId)
+  core.setOutput("confidence-status", params.confidence.status)
+  core.setOutput("confidence-percentage", params.confidence.percentage.toString())
+  core.setOutput("pr-number", params.prNumber > 0 ? params.prNumber.toString() : "")
 }
 
 // Entry point, called directly by GitHub Actions runtime

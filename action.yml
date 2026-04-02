@@ -139,6 +139,30 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  outcome:
+    description: "High-level result: fix-suggested, non-code, gave-up, or empty for cleanup/command modes without a fix attempt"
+  fix-id:
+    description: "The selected fix ID (e.g. #fix-abc1234), empty if no fix was suggested"
+  confidence-status:
+    description: "Confidence classification: reproduced-and-verified, not-reproduced-tests-pass, reproduced-tests-fail, neither, non-code, gave-up"
+  confidence-percentage:
+    description: "Numeric confidence score (0-100)"
+  pr-number:
+    description: "The PR number that was created or commented on"
+  total-input-tokens:
+    description: "Total input tokens used across all attempts"
+  total-output-tokens:
+    description: "Total output tokens used across all attempts"
+  total-cache-read-tokens:
+    description: "Total cache read tokens across all attempts"
+  total-cache-creation-tokens:
+    description: "Total cache creation tokens across all attempts"
+  total-attempts:
+    description: "Number of fix attempts made"
+  total-duration-ms:
+    description: "Total Claude API duration in milliseconds"
+
 runs:
   using: "node20"
   main: "dist/index.js"

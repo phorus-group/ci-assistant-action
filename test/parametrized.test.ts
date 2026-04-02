@@ -6,7 +6,13 @@ import {
   formatHelpComment,
 } from "../src/commands"
 import { checkForExploitation } from "../src/security"
-import { parseConfidence, generateFixId, renderPrompt, CliClaudeRunner } from "../src/claude"
+import {
+  parseConfidence,
+  generateFixId,
+  renderPrompt,
+  parseJsonOutput,
+  CliClaudeRunner,
+} from "../src/claude"
 import {
   Command,
   State,
@@ -887,5 +893,57 @@ describe("Parametrized: CliClaudeRunner.buildArgs", () => {
     expect(args).not.toContain("--allowedTools")
     expect(args).not.toContain("--disallowedTools")
     expect(args).not.toContain("--append-system-prompt")
+  })
+
+  it("includes --output-format json", () => {
+    const runner = new CliClaudeRunner(".")
+    const args = runner.buildArgs("test", "model", 10)
+    const idx = args.indexOf("--output-format")
+    expect(idx).toBeGreaterThan(-1)
+    expect(args[idx + 1]).toBe("json")
+  })
+})
+
+// ============================
+// JSON Output Parsing
+// ============================
+describe("Parametrized: parseJsonOutput", () => {
+  it("extracts text and usage from Claude CLI JSON output", () => {
+    const json = JSON.stringify({
+      type: "result",
+      result: "Fixed the bug. CONFIDENCE_PERCENT: 85",
+      num_turns: 3,
+      duration_ms: 15000,
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+        cache_read_input_tokens: 5000,
+        cache_creation_input_tokens: 2000,
+      },
+    })
+    const parsed = parseJsonOutput(json)
+    expect(parsed.text).toBe("Fixed the bug. CONFIDENCE_PERCENT: 85")
+    expect(parsed.usage).toEqual({
+      inputTokens: 1500,
+      outputTokens: 300,
+      cacheReadTokens: 5000,
+      cacheCreationTokens: 2000,
+      numTurns: 3,
+      durationMs: 15000,
+    })
+  })
+
+  it("returns null usage when CLI returns JSON without usage field", () => {
+    const json = JSON.stringify({ result: "Hello" })
+    const parsed = parseJsonOutput(json)
+    expect(parsed.text).toBe("Hello")
+    expect(parsed.usage).toBeNull()
+  })
+
+  it("falls back to raw stdout when CLI output is not JSON", () => {
+    const raw = "Error reproduced. All tests pass. CONFIDENCE_PERCENT: 90"
+    const parsed = parseJsonOutput(raw)
+    expect(parsed.text).toBe(raw)
+    expect(parsed.usage).toBeNull()
   })
 })

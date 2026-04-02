@@ -201,12 +201,13 @@ export class MockClaudeRunner implements ClaudeRunner {
       exitCode: result.exitCode || 0,
       diff: result.diff || "",
       filesChanged: result.filesChanged || [],
+      usage: result.usage || null,
     })
   }
 
   async run(_prompt: string, _model: string, _maxTurns: number): Promise<ClaudeResult> {
     if (this.callIndex >= this.results.length) {
-      return { output: "", exitCode: 1, diff: "", filesChanged: [] }
+      return { output: "", exitCode: 1, diff: "", filesChanged: [], usage: null }
     }
     return this.results[this.callIndex++]
   }

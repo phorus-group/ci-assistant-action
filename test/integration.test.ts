@@ -9,6 +9,7 @@ import {
 import { run } from "../src"
 import { State, DEFAULT_META, META_MARKER, SUGGESTION_HEADER } from "../src/types"
 import { readMeta, writeMeta } from "../src/github"
+import * as core from "@actions/core"
 import * as exec from "@actions/exec"
 
 jest.mock("@actions/core", () => ({
@@ -17,6 +18,7 @@ jest.mock("@actions/core", () => ({
     return process.env[key] || ""
   }),
   setFailed: jest.fn(),
+  setOutput: jest.fn(),
   info: jest.fn(),
   warning: jest.fn(),
   summary: {
@@ -3028,6 +3030,95 @@ describe("Integration Tests", () => {
       const { meta: after } = await readMeta(github, 600, "github-actions[bot]")
       expect(after.state).toBe(State.ACTIVE)
       expect(after.totalCt).toBe(5)
+    })
+  })
+
+  describe("Action outputs", () => {
+    const mockSetOutput = core.setOutput as jest.Mock
+
+    beforeEach(() => {
+      mockSetOutput.mockClear()
+    })
+
+    function getOutput(name: string): string | undefined {
+      const call = mockSetOutput.mock.calls.find((c: [string, string]) => c[0] === name)
+      return call ? call[1] : undefined
+    }
+
+    it("sets fix-suggested outputs on successful auto-fix", async () => {
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({ mode: "auto-fix" })
+
+      github.addPR({
+        number: 42,
+        state: "open",
+        head: { ref: "feature-branch", sha: "abc123" },
+        base: { ref: "main" },
+      })
+      github.setLogs(12345, "Error: test failed")
+      claude.addResult({
+        output: "Error reproduced. Fixed. All tests pass. CONFIDENCE_PERCENT: 85",
+        diff: "--- a/f.ts\n+++ b/f.ts\n-bug\n+fix",
+        filesChanged: ["f.ts"],
+      })
+
+      await run(github, slack, claude, git)
+
+      expect(getOutput("outcome")).toBe("fix-suggested")
+      expect(getOutput("fix-id")).toMatch(/^#fix-[a-f0-9]{7}$/)
+      expect(getOutput("confidence-status")).toBe("reproduced-and-verified")
+      expect(getOutput("confidence-percentage")).toBe("85")
+      expect(getOutput("pr-number")).toBe("42")
+      expect(getOutput("total-attempts")).toBeDefined()
+    })
+
+    it("sets gave-up outputs when Claude cannot fix", async () => {
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({ mode: "auto-fix" })
+
+      github.addPR({
+        number: 42,
+        state: "open",
+        head: { ref: "feature-branch", sha: "abc123" },
+        base: { ref: "main" },
+      })
+      github.setLogs(12345, "Error: test failed")
+      claude.addResult({ output: "Cannot fix.", diff: "", filesChanged: [] })
+      claude.addResult({ output: "", diff: "", filesChanged: [] })
+      claude.addResult({ output: "", diff: "", filesChanged: [] })
+
+      await run(github, slack, claude, git)
+
+      expect(getOutput("outcome")).toBe("gave-up")
+      expect(getOutput("fix-id")).toBe("")
+      expect(getOutput("confidence-percentage")).toBe("0")
+      expect(getOutput("pr-number")).toBe("42")
+    })
+
+    it("sets non-code outputs on infrastructure failure", async () => {
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({ mode: "auto-fix" })
+
+      github.addPR({
+        number: 42,
+        state: "open",
+        head: { ref: "feature-branch", sha: "abc123" },
+        base: { ref: "main" },
+      })
+      github.setLogs(12345, "OOM killed")
+      claude.addResult({
+        output: "Runner OOM. ISSUE_TYPE: NON_CODE CONFIDENCE_PERCENT: 90",
+        diff: "",
+        filesChanged: [],
+      })
+      claude.addResult({ output: "", diff: "", filesChanged: [] })
+      claude.addResult({ output: "", diff: "", filesChanged: [] })
+
+      await run(github, slack, claude, git)
+
+      expect(getOutput("outcome")).toBe("non-code")
+      expect(getOutput("confidence-status")).toBe("non-code")
+      expect(getOutput("confidence-percentage")).toBe("90")
     })
   })
 })
