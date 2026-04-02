@@ -60,6 +60,7 @@ Interact through PR comment commands to accept, refine, or request alternative f
   - [Built-in defaults](#built-in-defaults)
   - [Available placeholders](#available-placeholders)
 - [Inputs reference](#inputs-reference)
+- [Outputs reference](#outputs-reference)
 - [Environment variables](#environment-variables)
 - [Slack integration](#slack-integration)
   - [Message types](#message-types)
@@ -338,7 +339,7 @@ CI Assistant state on regular PRs (meta comments) is not reset during cleanup. S
 
 ### Retry behavior
 
-Each auto-fix or command-triggered fix runs up to `max-retries` attempts (default: 3). Each attempt gets a fresh `max-turns` budget (default: 50 Claude conversation turns, use `-1` for unlimited). The working directory is reset between attempts, and context about what previous attempts tried is passed to subsequent ones. If the ideal result (reproduced and verified) is achieved, the loop stops early.
+Each auto-fix or command-triggered fix runs up to `max-retries` attempts (default: 3). Each attempt gets a fresh `max-turns` budget (default: 50 Claude conversation turns, use `-1` for unlimited). The working directory is reset between attempts, and context about what previous attempts tried is passed to subsequent ones. The loop stops early when a strong fix is found: either reproduced and verified, or tests pass with ≥70% confidence (covers cases like vulnerability fixes where the error can't be reproduced locally).
 
 <details>
 <summary>Detailed flow</summary>
@@ -347,7 +348,7 @@ Each auto-fix or command-triggered fix runs up to `max-retries` attempts (defaul
 2. **Working directory reset**: before each subsequent attempt, `git checkout -- .` and `git clean -fd` restore a clean state
 3. **Subsequent attempts**: use `retryPrompt` which includes what each previous attempt tried and why it still failed
 4. **Confidence prompt**: appended to every attempt, asking Claude to output `CONFIDENCE_PERCENT: <number>`
-5. **Early exit**: if an attempt achieves `REPRODUCED_AND_VERIFIED` status, the loop stops immediately
+5. **Early exit**: the loop stops immediately if an attempt achieves `REPRODUCED_AND_VERIFIED`, or `NOT_REPRODUCED_TESTS_PASS` with ≥70% confidence
 6. **Working directory restore**: after the loop, if the best attempt was not the last one, the action resets the working directory and re-applies the best attempt's diff via `git apply`
 7. **Diff capture**: after each attempt, all changes (including new files) are captured via `git add -A` + `git diff --staged`, then unstaged for the next attempt
 
@@ -710,6 +711,22 @@ Output exactly: CONFIDENCE_PERCENT: <number>
 | `claude-code-oauth-token` | `""` | Claude Code OAuth token (from `claude setup-token`, uses subscription quota) |
 | `anthropic-api-key` | `""` | Anthropic API key (pay-per-use fallback) |
 | `comment-body` | `""` | The PR comment text (command mode) |
+
+## Outputs reference
+
+| Output | Description |
+|---|---|
+| `outcome` | High-level result: `fix-suggested`, `non-code`, `gave-up`, or empty for cleanup/command modes without a fix attempt |
+| `fix-id` | The selected fix ID (e.g. `#fix-abc1234`), empty if no fix was suggested |
+| `confidence-status` | Confidence classification: `reproduced-and-verified`, `not-reproduced-tests-pass`, `reproduced-tests-fail`, `neither`, `non-code`, `gave-up` |
+| `confidence-percentage` | Numeric confidence score (0–100) |
+| `pr-number` | The PR number that was created or commented on |
+| `total-input-tokens` | Total input tokens used across all attempts |
+| `total-output-tokens` | Total output tokens used across all attempts |
+| `total-cache-read-tokens` | Total cache read tokens across all attempts |
+| `total-cache-creation-tokens` | Total cache creation tokens across all attempts |
+| `total-attempts` | Number of fix attempts made |
+| `total-duration-ms` | Total Claude API duration in milliseconds |
 
 ## Environment variables
 
