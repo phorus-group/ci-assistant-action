@@ -228,9 +228,18 @@ export async function runWithRetries(
       confidence,
     })
 
-    // If we got the ideal result, stop retrying
-    if (confidence && confidence.status === ConfidenceStatus.REPRODUCED_AND_VERIFIED) {
-      core.info(`Fix verified on attempt ${i}`)
+    // Stop retrying if the fix is strong enough:
+    // - REPRODUCED_AND_VERIFIED: always stop (best possible outcome).
+    // - NOT_REPRODUCED_TESTS_PASS with high confidence: the error couldn't be
+    //   reproduced locally (e.g. Trivy vulnerability scan, infra-only checks)
+    //   but tests pass and Claude is confident in the fix.
+    const shouldStop =
+      confidence &&
+      (confidence.status === ConfidenceStatus.REPRODUCED_AND_VERIFIED ||
+        (confidence.status === ConfidenceStatus.NOT_REPRODUCED_TESTS_PASS &&
+          confidence.percentage >= 70))
+    if (shouldStop) {
+      core.info(`Fix verified on attempt ${i} (${confidence!.status}, ${confidence!.percentage}%)`)
       break
     }
 
