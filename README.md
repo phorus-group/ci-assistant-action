@@ -64,6 +64,7 @@ Interact through PR comment commands to accept, refine, or request alternative f
 - [Environment variables](#environment-variables)
 - [Slack integration](#slack-integration)
   - [Message types](#message-types)
+  - [Parent failure message updates](#parent-failure-message-updates)
   - [Block truncation](#block-truncation)
 - [Security](#security)
   - [Prompt injection protection](#prompt-injection-protection)
@@ -762,12 +763,25 @@ Slack messages are only sent when there is failure context (a pipeline actually 
 
 | Type | When posted | Style |
 |---|---|---|
-| **Suggestion** | New fix found (auto-fix, or command with prior failure context) | Stethoscope icon, confidence status with icon/label/percentage, fix ID, "View on GitHub" button, context line with fix count and test status |
-| **Status update** | Status changes (accept, gave up, non-code, limit hit, cleanup) with prior failure context | Stethoscope icon, status text, "View on GitHub" button, context line with fix count and command count |
+| **Suggestion** | New fix found (auto-fix, or command with prior failure context) | Robot icon, confidence status with icon/label/percentage, fix ID, "View on GitHub" button, context line with fix count and test status |
+| **Status update** | Status changes (accept, gave up, non-code, limit hit, cleanup) with prior failure context | Robot icon, status text, "View on GitHub" button, context line with fix count and command count |
 | **Exploit alert** | Exploitation attempt detected | Warning icon, "Potential exploitation attempt" header, "View Comment" button (danger style), ban instructions. Posted as a top-level message (not in thread) for visibility. |
 | **Unresolved tag** | Tag failure with unknown source branch | Warning icon, tag name, explanation that no PR was created, analysis excerpt (first 500 chars) |
 
 Suggestion and status messages are posted once and updated in place on subsequent events. The message timestamp (`ts`) is stored in the meta comment so updates work across separate workflow runs.
+
+### Parent failure message updates
+
+When `slack-thread-ts` is provided (pointing to an existing pipeline failure message), CI Assistant appends a status line to that message so developers can see the assistant's progress without leaving the failure thread. The status is shown as a context block at the bottom of the failure message.
+
+| Status | When shown |
+|---|---|
+| "Analyzing failure..." | CI Assistant starts running (before Claude is invoked) |
+| "Fix suggested" (with PR link) | A code fix was found and posted |
+| "Non-code issue identified" (with PR link) | The failure was identified as not code related |
+| "Could not determine a fix" | CI Assistant gave up after all retry attempts |
+
+Each status replaces the previous one (only one CI Assistant status line is shown at a time). If no `slack-thread-ts` is provided, the parent message is not modified.
 
 ### Block truncation
 

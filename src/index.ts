@@ -64,6 +64,7 @@ import {
   buildExploitAlertBlocks,
   buildUnresolvedTagBlocks,
   postOrUpdateSlack,
+  updateParentFailureStatus,
 } from "./slack"
 
 function getInputs(): ActionInputs {
@@ -94,7 +95,10 @@ function getInputs(): ActionInputs {
         "Be efficient with your actions. Do not re-read files you have already read. Do not spawn subagents for tasks you can do directly. " +
         "Prefer grep over reading entire files when searching for specific errors or patterns. " +
         "Once you identify the root cause, go straight to implementing the fix. " +
-        "Read only what you need at each step. If grep results are sufficient to understand the issue, do not read the full file.",
+        "Read only what you need at each step. If grep results are sufficient to understand the issue, do not read the full file.\n\n" +
+        "IMPORTANT: Do not run git push, git checkout -b, or any command that interacts with the remote repository. " +
+        "Do not create branches or push commits. Only make local code changes. " +
+        "All git operations (branching, committing, pushing) are handled automatically after you finish.",
       core.getInput("append-system-prompt"),
     ]
       .filter(Boolean)
@@ -484,6 +488,16 @@ async function handleAutoFix(
     })
   const git = gitOpsParam || new RealGitOperations(inputs.workingDirectory)
 
+  // Update parent failure message with "analyzing" status
+  if (slack && inputs.slackFailureChannel && inputs.slackThreadTs) {
+    await updateParentFailureStatus(
+      slack,
+      inputs.slackFailureChannel,
+      inputs.slackThreadTs,
+      "Analyzing failure..."
+    )
+  }
+
   const { bestAttempt, totalUsage } = await runWithRetries(
     runner,
     git,
@@ -628,6 +642,16 @@ async function handleAutoFix(
         meta.slackTs = slackTs
         meta.slackChannel = inputs.slackFailureChannel
       }
+
+      if (inputs.slackThreadTs) {
+        await updateParentFailureStatus(
+          slack,
+          inputs.slackFailureChannel,
+          inputs.slackThreadTs,
+          "Non-code issue identified",
+          prUrl()
+        )
+      }
     }
   } else if (bestAttempt.diff && bestAttempt.diff.length > 0) {
     // Code fix found
@@ -699,6 +723,16 @@ async function handleAutoFix(
         meta.slackTs = slackTs
         meta.slackChannel = inputs.slackFailureChannel
       }
+
+      if (inputs.slackThreadTs) {
+        await updateParentFailureStatus(
+          slack,
+          inputs.slackFailureChannel,
+          inputs.slackThreadTs,
+          "Fix suggested",
+          prUrl()
+        )
+      }
     }
   } else {
     // Gave up: post on existing PR, but do NOT create a new ci-assistant PR
@@ -732,6 +766,15 @@ async function handleAutoFix(
       if (slackTs) {
         meta.slackTs = slackTs
         meta.slackChannel = inputs.slackFailureChannel
+      }
+
+      if (inputs.slackThreadTs) {
+        await updateParentFailureStatus(
+          slack,
+          inputs.slackFailureChannel,
+          inputs.slackThreadTs,
+          "Could not determine a fix"
+        )
       }
     }
   }

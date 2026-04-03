@@ -418,6 +418,10 @@ export async function readMeta(
   botUsername: string
 ): Promise<{ meta: MetaComment; commentId: number | null }> {
   const comments = await client.getComments(prNumber)
+  log(
+    LogPrefix.CONTEXT,
+    `Reading meta from PR #${prNumber} (${comments.length} comments, bot: ${botUsername})`
+  )
 
   for (const comment of comments) {
     if (comment.user.login === botUsername && comment.body.includes(META_MARKER)) {
@@ -425,6 +429,7 @@ export async function readMeta(
         const jsonMatch = comment.body.match(/<!-- ci-assistant-meta: ({.*?}) -->/s)
         if (jsonMatch) {
           const meta = JSON.parse(jsonMatch[1]) as MetaComment
+          log(LogPrefix.CONTEXT, `Found meta comment ${comment.id} (state: ${meta.state})`)
           return { meta: { ...createDefaultMeta(), ...meta }, commentId: comment.id }
         }
       } catch {
@@ -433,6 +438,7 @@ export async function readMeta(
     }
   }
 
+  log(LogPrefix.CONTEXT, `No meta comment found for PR #${prNumber}`)
   return { meta: createDefaultMeta(), commentId: null }
 }
 
@@ -445,10 +451,12 @@ export async function writeMeta(
   const body = `<sub>CI Assistant state. Do not edit or delete this comment.</sub>\n\n${META_MARKER} ${JSON.stringify(meta)} -->`
 
   if (commentId) {
+    log(LogPrefix.CONTEXT, `Updating meta comment ${commentId} (state: ${meta.state})`)
     await client.updateComment(commentId, body)
     return commentId
   }
 
+  log(LogPrefix.CONTEXT, `Creating new meta comment on PR #${prNumber} (state: ${meta.state})`)
   const comment = await client.createComment(prNumber, body)
   return comment.id
 }

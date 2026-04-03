@@ -3,6 +3,7 @@ import {
   buildStatusUpdateBlocks,
   buildExploitAlertBlocks,
   postOrUpdateSlack,
+  updateParentFailureStatus,
 } from "../src/slack"
 import { MockSlackClient } from "./mocks"
 import { DEFAULT_META, ConfidenceStatus, State } from "../src/types"
@@ -174,5 +175,76 @@ describe("postOrUpdateSlack", () => {
     const ts = await postOrUpdateSlack(slack, DEFAULT_META, "", [], "no channel")
     expect(ts).toBeNull()
     expect(slack.messages.length).toBe(0)
+  })
+})
+
+describe("updateParentFailureStatus", () => {
+  let slack: MockSlackClient
+
+  beforeEach(() => {
+    slack = new MockSlackClient()
+  })
+
+  it("appends ci-assistant context block to existing message", async () => {
+    // Post a failure message first
+    await slack.postMessage(
+      "C0TEST",
+      [
+        { type: "section", text: { type: "mrkdwn", text: ":x: Pipeline failed" } },
+        { type: "context", elements: [{ type: "mrkdwn", text: ":red_circle: Failed" }] },
+      ],
+      "failed"
+    )
+    const parentTs = slack.messages[0].ts
+
+    await updateParentFailureStatus(slack, "C0TEST", parentTs, "Analyzing failure...")
+
+    expect(slack.updates.length).toBe(1)
+    const updatedBlocks = slack.updates[0].blocks
+    expect(updatedBlocks.length).toBe(3)
+    expect(updatedBlocks[2].type).toBe("context")
+    const contextText = (updatedBlocks[2].elements as { text: string }[])[0].text
+    expect(contextText).toContain("CI Assistant:")
+    expect(contextText).toContain("Analyzing failure...")
+  })
+
+  it("replaces previous ci-assistant status on subsequent updates", async () => {
+    await slack.postMessage(
+      "C0TEST",
+      [
+        { type: "section", text: { type: "mrkdwn", text: ":x: Pipeline failed" } },
+        { type: "context", elements: [{ type: "mrkdwn", text: ":red_circle: Failed" }] },
+      ],
+      "failed"
+    )
+    const parentTs = slack.messages[0].ts
+
+    await updateParentFailureStatus(slack, "C0TEST", parentTs, "Analyzing failure...")
+    await updateParentFailureStatus(
+      slack,
+      "C0TEST",
+      parentTs,
+      "Fix suggested",
+      "https://github.com/org/repo/pull/1"
+    )
+
+    const lastUpdate = slack.updates[slack.updates.length - 1]
+    const blocks = lastUpdate.blocks
+    // Should still have 3 blocks (section + original context + ci-assistant context), not 4
+    expect(blocks.length).toBe(3)
+    const contextText = (blocks[2].elements as { text: string }[])[0].text
+    expect(contextText).toContain("Fix suggested")
+    expect(contextText).toContain("View PR")
+    expect(contextText).not.toContain("Analyzing")
+  })
+
+  it("skips when channel is empty", async () => {
+    await updateParentFailureStatus(slack, "", "some-ts", "test")
+    expect(slack.updates.length).toBe(0)
+  })
+
+  it("skips when parentTs is empty", async () => {
+    await updateParentFailureStatus(slack, "C0TEST", "", "test")
+    expect(slack.updates.length).toBe(0)
   })
 })

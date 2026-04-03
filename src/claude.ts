@@ -446,7 +446,9 @@ export class CliClaudeRunner implements ClaudeRunner {
 }
 
 export interface GitOperations {
+  getHeadSha(): Promise<string>
   resetHard(): Promise<void>
+  resetToSha(sha: string): Promise<void>
   clean(): Promise<void>
   applyDiff(diff: string): Promise<void>
 }
@@ -456,6 +458,14 @@ export class RealGitOperations implements GitOperations {
 
   constructor(cwd: string) {
     this.cwd = cwd
+  }
+
+  async getHeadSha(): Promise<string> {
+    const result = await exec.getExecOutput("git", ["rev-parse", "HEAD"], {
+      cwd: this.cwd,
+      silent: true,
+    })
+    return result.stdout.trim()
   }
 
   async resetHard(): Promise<void> {
@@ -475,6 +485,22 @@ export class RealGitOperations implements GitOperations {
       })
       log(LogPrefix.GIT, `status after failed resetHard:\n${status.stdout.trim()}`)
       throw new Error(`git checkout -- . failed with exit code ${result.exitCode}`)
+    }
+  }
+
+  async resetToSha(sha: string): Promise<void> {
+    log(LogPrefix.GIT, `resetToSha: git reset --hard ${sha}`)
+    const result = await exec.getExecOutput("git", ["reset", "--hard", sha], {
+      cwd: this.cwd,
+      silent: true,
+      ignoreReturnCode: true,
+    })
+    if (result.exitCode !== 0) {
+      logError(
+        LogPrefix.GIT,
+        `resetToSha failed (exit ${result.exitCode}): ${result.stderr.trim()}`
+      )
+      throw new Error(`git reset --hard ${sha} failed with exit code ${result.exitCode}`)
     }
   }
 
@@ -520,6 +546,8 @@ export async function runWithRetries(
   commandPrompt?: string,
   conversationHistory?: string
 ): Promise<{ bestAttempt: RetryAttempt; allAttempts: RetryAttempt[]; totalUsage: TotalUsage }> {
+  const originalSha = await git.getHeadSha()
+  log(LogPrefix.GIT, `Captured original HEAD: ${originalSha}`)
   const attempts: RetryAttempt[] = []
   let totalInputTokens = 0
   let totalOutputTokens = 0
@@ -538,9 +566,9 @@ export async function runWithRetries(
   for (let i = 1; i <= inputs.maxRetries; i++) {
     log(LogPrefix.RETRY, `Fix attempt ${i}/${inputs.maxRetries}...`)
 
-    // Reset working tree between attempts
+    // Reset working tree between attempts (including any commits Claude may have made)
     if (i > 1) {
-      await git.resetHard()
+      await git.resetToSha(originalSha)
       await git.clean()
     }
 
@@ -648,7 +676,7 @@ export async function runWithRetries(
       LogPrefix.RETRY,
       `Best attempt was #${bestAttempt.attempt} (not the last), restoring its changes`
     )
-    await git.resetHard()
+    await git.resetToSha(originalSha)
     await git.clean()
     await git.applyDiff(bestAttempt.diff)
   }

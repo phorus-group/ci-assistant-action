@@ -244,7 +244,7 @@ describe("Integration Tests", () => {
       expect(analysis).toBeDefined()
     })
 
-    it("resets working tree between retry attempts", async () => {
+    it("resets working tree between retry attempts using original HEAD SHA", async () => {
       claude.addResult({ output: "fail", diff: "", filesChanged: [] })
       claude.addResult({ output: "fail", diff: "", filesChanged: [] })
       claude.addResult({ output: "fail", diff: "", filesChanged: [] })
@@ -254,6 +254,10 @@ describe("Integration Tests", () => {
       // Reset called between attempts (not before first)
       expect(git.resetCount).toBe(2)
       expect(git.cleanCount).toBe(2)
+      // Should use resetToSha with the original HEAD SHA, not resetHard
+      expect(git.resetToShaCalls.length).toBe(2)
+      expect(git.resetToShaCalls[0]).toBe("mock-head-sha")
+      expect(git.resetToShaCalls[1]).toBe("mock-head-sha")
     })
 
     it("writes per-attempt output files for retry context", async () => {

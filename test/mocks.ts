@@ -205,6 +205,13 @@ export class MockSlackClient implements SlackClient {
     this.updates.push({ channel, ts, blocks, text })
   }
 
+  async getMessageBlocks(_channel: string, ts: string): Promise<SlackBlock[] | null> {
+    const msg = this.messages.find((m) => m.ts === ts)
+    if (msg) return msg.blocks
+    const update = this.updates.find((u) => u.ts === ts)
+    return update?.blocks ?? null
+  }
+
   getLastMessage() {
     return this.messages[this.messages.length - 1]
   }
@@ -239,9 +246,19 @@ export class MockClaudeRunner implements ClaudeRunner {
 export class MockGitOperations implements GitOperations {
   resetCount = 0
   cleanCount = 0
+  resetToShaCalls: string[] = []
+
+  async getHeadSha(): Promise<string> {
+    return "mock-head-sha"
+  }
 
   async resetHard(): Promise<void> {
     this.resetCount++
+  }
+
+  async resetToSha(sha: string): Promise<void> {
+    this.resetCount++
+    this.resetToShaCalls.push(sha)
   }
 
   async clean(): Promise<void> {

@@ -15,6 +15,7 @@ export interface SlackClient {
     threadTs?: string
   ): Promise<string | null>
   updateMessage(channel: string, ts: string, blocks: SlackBlock[], text: string): Promise<void>
+  getMessageBlocks(channel: string, ts: string): Promise<SlackBlock[] | null>
 }
 
 export class HttpSlackClient implements SlackClient {
@@ -93,6 +94,28 @@ export class HttpSlackClient implements SlackClient {
       }
     } catch (error) {
       logWarning(LogPrefix.SLACK, `updateMessage error: ${error}`)
+    }
+  }
+
+  async getMessageBlocks(channel: string, ts: string): Promise<SlackBlock[] | null> {
+    try {
+      const response = await fetch(
+        `https://slack.com/api/conversations.history?channel=${channel}&latest=${ts}&oldest=${ts}&inclusive=true&limit=1`,
+        { headers: { Authorization: `Bearer ${this.token}` } }
+      )
+      const data = (await response.json()) as {
+        ok: boolean
+        error?: string
+        messages?: { blocks?: SlackBlock[] }[]
+      }
+      if (!data.ok || !data.messages?.length) {
+        logWarning(LogPrefix.SLACK, `getMessageBlocks failed: ${data.error || "no messages"}`)
+        return null
+      }
+      return data.messages[0].blocks ?? null
+    } catch (error) {
+      logWarning(LogPrefix.SLACK, `getMessageBlocks error: ${error}`)
+      return null
     }
   }
 }
@@ -297,6 +320,52 @@ export function buildUnresolvedTagBlocks(params: { repo: string; tag: string; an
   const text = `CI Assistant: tag ${tag} failed in ${repo}, source branch could not be resolved`
 
   return { blocks, text }
+}
+
+const CI_ASSISTANT_BLOCK_MARKER = "\u{1F916} CI Assistant:"
+
+export async function updateParentFailureStatus(
+  client: SlackClient,
+  channel: string,
+  parentTs: string,
+  status: string,
+  prUrl?: string
+): Promise<void> {
+  if (!channel || !parentTs) return
+
+  log(LogPrefix.SLACK, `Updating parent failure message with status: ${status}`)
+
+  const blocks = await client.getMessageBlocks(channel, parentTs)
+  if (!blocks) {
+    logWarning(LogPrefix.SLACK, "Could not read parent failure message blocks")
+    return
+  }
+
+  // Remove any existing ci-assistant context block
+  const filtered = blocks.filter(
+    (b) =>
+      !(
+        b.type === "context" &&
+        (b.elements as { type: string; text?: string }[] | undefined)?.some(
+          (e) => e.type === "mrkdwn" && e.text?.startsWith(CI_ASSISTANT_BLOCK_MARKER)
+        )
+      )
+  )
+
+  // Build the status text
+  let statusText = `${CI_ASSISTANT_BLOCK_MARKER} ${status}`
+  if (prUrl) {
+    statusText += ` | <${prUrl}|View PR>`
+  }
+
+  // Append new ci-assistant context block
+  filtered.push({
+    type: "context",
+    elements: [{ type: "mrkdwn", text: statusText }],
+  })
+
+  const text = `CI Assistant: ${status}`
+  await client.updateMessage(channel, parentTs, filtered, text)
 }
 
 export async function postOrUpdateSlack(
