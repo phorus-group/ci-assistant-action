@@ -97,7 +97,7 @@ export async function prepareRunContext(
     const jobNames = jobLogs.map((j) => `"${j.name}"`).join(", ")
     lines.push(
       `Failed job logs saved to ${CONTEXT_DIR}/logs/ (${jobLogs.length} job(s): ${jobNames}). ` +
-        `Each file is named after the job. Read or grep them to find the error.`
+        `Each file is named after the job. Grep for errors or keywords first. Only read the full log if grep is not enough.`
     )
   } else {
     lines.push("No failed job logs available.")
@@ -174,7 +174,7 @@ export async function prepareRunContext(
     if (downloaded.length > 0) {
       lines.push(
         `Artifacts extracted to ${CONTEXT_DIR}/artifacts/ (${downloaded.join(", ")}). ` +
-          `Check these for detailed reports (e.g. vulnerability-report.json).`
+          `Only read these if the log files do not contain enough information to identify the root cause.`
       )
     }
     if (skipped.length > 0) {
@@ -529,10 +529,10 @@ export async function runWithRetries(
 
   // Write remaining large context to files
   const suggestionsRef = previousSuggestions
-    ? `Previous fix suggestions saved to ${writeContextFile(inputs.workingDirectory, "previous-suggestions.txt", previousSuggestions)}. Read them to avoid repeating the same approaches.`
+    ? `Previous fix suggestions saved to ${writeContextFile(inputs.workingDirectory, "previous-suggestions.txt", previousSuggestions)}. Read this file before starting so you do not repeat the same approaches.`
     : ""
   const historyRef = conversationHistory
-    ? `PR conversation history saved to ${writeContextFile(inputs.workingDirectory, "conversation-history.txt", conversationHistory)}. Read it if you need context from prior discussion.`
+    ? `PR conversation history saved to ${writeContextFile(inputs.workingDirectory, "conversation-history.txt", conversationHistory)}. Only read this if you need context from prior discussion.`
     : ""
 
   for (let i = 1; i <= inputs.maxRetries; i++) {

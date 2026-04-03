@@ -89,7 +89,11 @@ function getInputs(): ActionInputs {
     appendSystemPrompt: [
       "You are running inside a GitHub Actions runner. " +
         "Standard GitHub Actions environment variables are available (GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_REF, GITHUB_TOKEN, etc.). " +
-        "The `gh` CLI is authenticated and available for interacting with the GitHub API.",
+        "The `gh` CLI is authenticated and available for interacting with the GitHub API.\n\n" +
+        "Be efficient with your actions. Do not re-read files you have already read. Do not spawn subagents for tasks you can do directly. " +
+        "Prefer grep over reading entire files when searching for specific errors or patterns. " +
+        "Once you identify the root cause, go straight to implementing the fix. " +
+        "Read only what you need at each step. If grep results are sufficient to understand the issue, do not read the full file.",
       core.getInput("append-system-prompt"),
     ]
       .filter(Boolean)
@@ -112,52 +116,55 @@ function getInputs(): ActionInputs {
     commentPrNumber: core.getInput("comment-pr-number") || "",
     autoFixPrompt:
       core.getInput("auto-fix-prompt") ||
-      `CI pipeline failure logs:
+      `A CI pipeline has failed. Context files are available in .ci-assistant/.
+
 {{FAILURE_LOGS}}
 
 Repository: {{REPO}}
 Branch: {{BRANCH}}
 Commit: {{SHA}}
 
-Reproduce the error, implement a fix, and verify it works by running the relevant tests.`,
+Diagnose the failure, implement a fix, and verify it works. Start by grepping the log files for errors or keywords. Only read full files or artifacts if grep is not enough to identify the root cause. Once you know the issue, fix it and run the relevant tests or build to verify.`,
     retryPrompt:
       core.getInput("retry-prompt") ||
-      `CI pipeline failure logs:
+      `A CI pipeline has failed. Context files are available in .ci-assistant/.
+
 {{FAILURE_LOGS}}
 
 Previous attempts that did not work:
 {{PREVIOUS_ATTEMPTS}}
 
-Try a fundamentally different approach.`,
+Read the previous attempt output files to understand what was tried. Take a fundamentally different approach this time.`,
     alternativePrompt:
       core.getInput("alternative-prompt") ||
-      `CI pipeline failure logs:
+      `A CI pipeline has failed. Context files are available in .ci-assistant/.
+
 {{FAILURE_LOGS}}
 
 Previous fixes already suggested (do NOT repeat these):
 {{PREVIOUS_SUGGESTIONS}}
 
-Try a fundamentally different approach.`,
+Take a fundamentally different approach from the previous suggestions.`,
     suggestPrompt:
       core.getInput("suggest-prompt") ||
-      `Analyze the repository code and implement a fix based on the developer's request. Reproduce the error if possible and verify the fix by running the relevant tests.
+      `Implement a fix based on the developer's request. If CI failure context is available, use it to understand the issue. Verify the fix works.
 
 Developer's request:
 {{USER_CONTEXT}}
 
-CI failure logs (if available):
+CI failure context (if available):
 {{FAILURE_LOGS_IF_AVAILABLE}}
 
 CI Assistant conversation history:
 {{CONVERSATION_HISTORY}}`,
     explainPrompt:
       core.getInput("explain-prompt") ||
-      `Analyze the context below. If the developer provides a specific request, respond to it. Otherwise, explain the fix: what each change does, why it addresses the failure, and any relevant technical details. If no fix is present, analyze the failure and provide insights based on the available context. If you need to understand the failure better, reproduce the error by running the relevant tests or build commands.
+      `If the developer provides a request, respond to it. Otherwise, explain the fix or analyze the failure.
 
 Developer's request (if any):
 {{USER_PROMPT}}
 
-CI failure logs (if available):
+CI failure context (if available):
 {{FAILURE_LOGS_IF_AVAILABLE}}
 
 Fix diff (if available):
