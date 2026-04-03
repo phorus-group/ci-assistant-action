@@ -122,6 +122,10 @@ inputs:
     description: "Prompt appended to fix prompts for confidence analysis. No placeholder substitution (appended as-is)."
     required: false
     default: ""
+  summary-prompt:
+    description: "Prompt appended to fix prompts for fix summary generation. Claude outputs FIX_TITLE and FIX_DESCRIPTION markers. No placeholder substitution."
+    required: false
+    default: ""
   github-token:
     description: "GitHub token for API calls (supports default github.token or GitHub App tokens)"
     required: false

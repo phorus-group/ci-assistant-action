@@ -578,8 +578,8 @@ export async function runWithRetries(
       })
     }
 
-    // Append confidence prompt
-    prompt += "\n\n" + inputs.confidencePrompt
+    // Append confidence and summary prompts
+    prompt += "\n\n" + inputs.confidencePrompt + "\n\n" + inputs.summaryPrompt
 
     const result = await runner.run(prompt, model, inputs.maxTurns)
 
@@ -592,6 +592,7 @@ export async function runWithRetries(
     }
 
     const confidence = parseConfidence(result.output, result.diff)
+    const fixSummary = parseFixSummary(result.output)
 
     // Write full Claude output per attempt so retries can reference it
     const outputFile = writeContextFile(
@@ -608,6 +609,9 @@ export async function runWithRetries(
       reproductionOutput: extractReproductionOutput(result.output),
       outputFile,
       confidence,
+      fixTitle: fixSummary.title,
+      fixDescription: fixSummary.description,
+      fixError: fixSummary.error,
     })
 
     // Stop retrying if the fix is good enough:
@@ -740,6 +744,26 @@ export function parseConfidence(output: string, diff: string): ConfidenceResult 
   }
 
   return { status, percentage, reproduced, testsPass }
+}
+
+export function parseFixSummary(output: string): {
+  title: string | null
+  description: string | null
+  error: string | null
+} {
+  const titleMatch = output.match(/FIX_TITLE:\s*(.+)/)
+  const descMatch = output.match(
+    /FIX_DESCRIPTION:\s*(.+(?:\n(?!(?:REPRODUCED|VERIFIED|CONFIDENCE_PERCENT|ISSUE_TYPE|FIX_TITLE|FIX_ERROR):).+)*)/
+  )
+  const errorMatch = output.match(
+    /FIX_ERROR:\s*(.+(?:\n(?!(?:REPRODUCED|VERIFIED|CONFIDENCE_PERCENT|ISSUE_TYPE|FIX_TITLE|FIX_DESCRIPTION):).+)*)/
+  )
+
+  return {
+    title: titleMatch ? titleMatch[1].trim().slice(0, 70) : null,
+    description: descMatch ? descMatch[1].trim() : null,
+    error: errorMatch ? errorMatch[1].trim() : null,
+  }
 }
 
 export function generateFixId(diff: string): string {

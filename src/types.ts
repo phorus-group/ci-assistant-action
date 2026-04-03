@@ -90,6 +90,9 @@ export interface RetryAttempt {
   reproductionOutput: string | null
   confidence: ConfidenceResult | null
   outputFile: string | null
+  fixTitle: string | null
+  fixDescription: string | null
+  fixError: string | null
 }
 
 export interface ParsedCommand {
@@ -131,6 +134,7 @@ export interface ActionInputs {
   suggestPrompt: string
   explainPrompt: string
   confidencePrompt: string
+  summaryPrompt: string
   githubToken: string
   claudeCodeOauthToken: string
   anthropicApiKey: string

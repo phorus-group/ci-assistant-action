@@ -185,6 +185,13 @@ VERIFIED: YES or NO (did you deterministically verify the fix works? e.g. runnin
 CONFIDENCE_PERCENT: <number from 0 to 100>
 
 If this failure is not caused by the code itself (e.g. infrastructure, flaky tests, runner issues, network errors, timeouts, out of memory), also include: ISSUE_TYPE: NON_CODE`,
+    summaryPrompt:
+      core.getInput("summary-prompt") ||
+      `If you produced a code fix, summarize it with these markers:
+
+FIX_TITLE: <concise one-line title describing the fix, max 70 characters>
+FIX_DESCRIPTION: <2-3 sentence description of what was changed and why>
+FIX_ERROR: <brief description of what failed and why, 1-2 sentences>`,
     githubToken: core.getInput("github-token") || "",
     claudeCodeOauthToken: core.getInput("claude-code-oauth-token") || "",
     anthropicApiKey: core.getInput("anthropic-api-key") || "",
@@ -522,7 +529,10 @@ async function handleAutoFix(
 
       if (slack && inputs.slackFailureChannel) {
         const analysis =
-          bestAttempt.testOutput || bestAttempt.reproductionOutput || extractSummary(bestAttempt)
+          bestAttempt.fixDescription ||
+          bestAttempt.testOutput ||
+          bestAttempt.reproductionOutput ||
+          extractSummary(bestAttempt)
         const { blocks, text } = buildUnresolvedTagBlocks({
           repo,
           tag: inputs.failedBranch,
@@ -544,14 +554,23 @@ async function handleAutoFix(
     }
 
     const ciAssistantBranch = `ci-assistant/${inputs.failedBranch}`
-    await createBranchAndPushFix(ciAssistantBranch, inputs.failedSha)
+    const commitMsg = bestAttempt.fixTitle
+      ? `ci-assistant: ${bestAttempt.fixTitle}`
+      : "ci-assistant: automated fix for pipeline failure"
+    await createBranchAndPushFix(ciAssistantBranch, inputs.failedSha, commitMsg)
 
-    const prBody = isTagFailure
-      ? `Automated fix from CI Assistant for pipeline failure on tag \`${inputs.failedBranch}\`.\n\nTargeting branch \`${tagSourceBranch}\`. After merging, create a new tag from \`${tagSourceBranch}\`.`
-      : `Automated fix from CI Assistant for pipeline failure on \`${inputs.failedBranch}\`.`
+    const prTitle = bestAttempt.fixTitle
+      ? `ci-assistant: ${bestAttempt.fixTitle}`
+      : `ci-assistant: fix for ${inputs.failedBranch}`
+    let prBody =
+      bestAttempt.fixDescription ||
+      `Automated fix for pipeline failure on \`${inputs.failedBranch}\`.`
+    if (isTagFailure) {
+      prBody += `\n\nTargeting branch \`${tagSourceBranch}\`. After merging, create a new tag from \`${tagSourceBranch}\`.`
+    }
 
     const pr = await github.createPR({
-      title: `CI Assistant: fix for ${inputs.failedBranch}`,
+      title: prTitle,
       body: prBody,
       head: ciAssistantBranch,
       base: prTargetBranch,
@@ -628,11 +647,10 @@ async function handleAutoFix(
           prNumber,
           formatSuggestionComment({
             fixId,
-            summary: extractSummary(bestAttempt),
-            errorDetails: runContextRef,
+            summary: bestAttempt.fixDescription || extractSummary(bestAttempt),
+            errorSummary: bestAttempt.fixError || "",
             diff: bestAttempt.diff,
             confidence,
-            filesChanged: bestAttempt.filesChanged.length,
           }) +
             tagNote +
             pushedNote
@@ -647,11 +665,10 @@ async function handleAutoFix(
           prNumber,
           formatSuggestionComment({
             fixId,
-            summary: extractSummary(bestAttempt),
-            errorDetails: runContextRef,
+            summary: bestAttempt.fixDescription || extractSummary(bestAttempt),
+            errorSummary: bestAttempt.fixError || "",
             diff: bestAttempt.diff,
             confidence,
-            filesChanged: bestAttempt.filesChanged.length,
           }) + tagNote
         )
       }
@@ -1191,11 +1208,10 @@ async function handleFixCommand(
       prNumber,
       formatSuggestionComment({
         fixId,
-        summary: extractSummary(bestAttempt),
-        errorDetails: runContextRef.slice(0, 5000),
+        summary: bestAttempt.fixDescription || extractSummary(bestAttempt),
+        errorSummary: bestAttempt.fixError || "",
         diff: bestAttempt.diff,
         confidence,
-        filesChanged: bestAttempt.filesChanged.length,
       })
     )
 

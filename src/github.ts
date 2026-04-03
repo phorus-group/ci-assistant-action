@@ -481,24 +481,18 @@ export function getPreviousSuggestions(
 export function formatSuggestionComment(params: {
   fixId: string
   summary: string
-  errorDetails: string
+  errorSummary: string
   diff: string
   confidence: ConfidenceResult
-  filesChanged: number
 }): string {
-  const { fixId, summary, errorDetails, diff, confidence, filesChanged } = params
+  const { fixId, summary, errorSummary, diff, confidence } = params
 
   const icon = CONFIDENCE_STATUS_ICONS[confidence.status]
   const label = CONFIDENCE_STATUS_LABELS[confidence.status]
 
-  const maxDiffLen = 50000
-  let diffBlock = diff
-  let truncatedNote = ""
-  if (diff.length > maxDiffLen) {
-    diffBlock = diff.slice(0, maxDiffLen)
-    truncatedNote =
-      "\n\n_Diff truncated. Accept the fix to see full changes, or use `/ci-assistant explain` for a detailed walkthrough._"
-  }
+  const errorSection = errorSummary ? `\n### What failed\n${errorSummary}\n` : ""
+
+  const diffSections = formatPerFileDiff(diff)
 
   return `${SUGGESTION_HEADER} \`${fixId}\`
 
@@ -507,30 +501,55 @@ export function formatSuggestionComment(params: {
 
 ### Summary
 ${summary}
-
-### What failed
-<details>
-<summary>Error details</summary>
-
-${errorDetails}
-
-</details>
-
-### Suggested fix
-<details>
-<summary>View diff (${filesChanged} files changed)</summary>
-
-\`\`\`diff
-${diffBlock}
-\`\`\`${truncatedNote}
-
-</details>
+${errorSection}
+### Changes
+${diffSections}
 
 <sub>
 
 \`${fixId}\` | \`/ci-assistant accept\` | \`/ci-assistant alternative\` | \`/ci-assistant suggest <context>\` | \`/ci-assistant explain\` | \`/ci-assistant help\`
 
 </sub>`
+}
+
+function formatPerFileDiff(diff: string): string {
+  const maxTotalLen = 50000
+  let totalLen = 0
+  let truncated = false
+
+  // Split diff by file (each starts with "diff --git")
+  const fileDiffs = diff.split(/(?=^diff --git )/m).filter((s) => s.trim())
+
+  if (fileDiffs.length === 0) return "_No changes_"
+
+  const sections: string[] = []
+  for (const fileDiff of fileDiffs) {
+    if (truncated) break
+
+    // Extract file name from "diff --git a/path b/path" or "+++ b/path"
+    const nameMatch =
+      fileDiff.match(/^\+\+\+ b\/(.+)$/m) || fileDiff.match(/^diff --git a\/.+ b\/(.+)$/m)
+    const fileName = nameMatch ? nameMatch[1] : "unknown file"
+
+    let content = fileDiff
+    if (totalLen + content.length > maxTotalLen) {
+      content = content.slice(0, maxTotalLen - totalLen)
+      truncated = true
+    }
+    totalLen += content.length
+
+    sections.push(
+      `<details>\n<summary>${fileName}</summary>\n\n\`\`\`diff\n${content}\n\`\`\`\n\n</details>`
+    )
+  }
+
+  if (truncated) {
+    sections.push(
+      "\n_Diff truncated. Accept the fix to see full changes, or use `/ci-assistant explain` for a detailed walkthrough._"
+    )
+  }
+
+  return sections.join("\n")
 }
 
 export function formatNonCodeComment(params: {
@@ -572,7 +591,11 @@ CI Assistant was unable to produce a fix for this failure after all retry attemp
 </sub>`
 }
 
-export async function createBranchAndPushFix(branchName: string, baseSha: string): Promise<void> {
+export async function createBranchAndPushFix(
+  branchName: string,
+  baseSha: string,
+  commitMessage = "ci-assistant: automated fix for pipeline failure"
+): Promise<void> {
   log(LogPrefix.GIT, `Creating branch ${branchName} from ${baseSha}`)
 
   const checkout = await exec.getExecOutput("git", ["checkout", "-b", branchName, baseSha], {
@@ -589,11 +612,10 @@ export async function createBranchAndPushFix(branchName: string, baseSha: string
 
   await exec.exec("git", ["add", "-A"], { silent: true })
 
-  const commit = await exec.getExecOutput(
-    "git",
-    ["commit", "-m", `ci-assistant: automated fix for pipeline failure`],
-    { silent: true, ignoreReturnCode: true }
-  )
+  const commit = await exec.getExecOutput("git", ["commit", "-m", commitMessage], {
+    silent: true,
+    ignoreReturnCode: true,
+  })
   if (commit.exitCode !== 0) {
     logError(LogPrefix.GIT, `commit failed (exit ${commit.exitCode}): ${commit.stderr.trim()}`)
     throw new Error(`git commit failed with exit code ${commit.exitCode}`)

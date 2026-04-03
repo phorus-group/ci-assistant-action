@@ -7,7 +7,13 @@ import {
 } from "../src/commands"
 import { checkForExploitation } from "../src/security"
 import * as exec from "@actions/exec"
-import { parseConfidence, generateFixId, renderPrompt, CliClaudeRunner } from "../src/claude"
+import {
+  parseConfidence,
+  parseFixSummary,
+  generateFixId,
+  renderPrompt,
+  CliClaudeRunner,
+} from "../src/claude"
 import {
   Command,
   State,
@@ -866,6 +872,49 @@ describe("Parametrized: CliClaudeRunner.buildArgs", () => {
     expect(idx).toBeGreaterThan(-1)
     expect(args[idx + 1]).toBe("stream-json")
     expect(args).toContain("--verbose")
+  })
+})
+
+// ============================
+// Fix Summary Parsing
+// ============================
+describe("Parametrized: parseFixSummary", () => {
+  it("extracts title, description, and error", () => {
+    const output = `Some analysis text...
+FIX_TITLE: Fix 3 CVEs in netty and spring-framework
+FIX_DESCRIPTION: Added ext[] overrides in build.gradle.kts to bump netty to 4.2.11.Final and spring-framework to 7.0.6.
+FIX_ERROR: Trivy found 3 vulnerabilities with exit-code 1 configured.
+REPRODUCED: NO
+VERIFIED: YES
+CONFIDENCE_PERCENT: 95`
+
+    const result = parseFixSummary(output)
+    expect(result.title).toBe("Fix 3 CVEs in netty and spring-framework")
+    expect(result.description).toContain("ext[] overrides")
+    expect(result.error).toContain("Trivy found 3 vulnerabilities")
+  })
+
+  it("returns null when markers are absent", () => {
+    const output = "Just some text without any markers"
+    const result = parseFixSummary(output)
+    expect(result.title).toBeNull()
+    expect(result.description).toBeNull()
+    expect(result.error).toBeNull()
+  })
+
+  it("truncates title to 70 characters", () => {
+    const output = `FIX_TITLE: ${"a".repeat(100)}`
+    const result = parseFixSummary(output)
+    expect(result.title!.length).toBe(70)
+  })
+
+  it("handles partial markers", () => {
+    const output = `FIX_TITLE: Only a title
+CONFIDENCE_PERCENT: 80`
+    const result = parseFixSummary(output)
+    expect(result.title).toBe("Only a title")
+    expect(result.description).toBeNull()
+    expect(result.error).toBeNull()
   })
 })
 

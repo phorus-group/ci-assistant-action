@@ -171,37 +171,77 @@ describe("formatSuggestionComment", () => {
     const comment = formatSuggestionComment({
       fixId: "#fix-test123",
       summary: "Fixed the null pointer exception",
-      errorDetails: "Error at line 42",
-      diff: "-old code\n+new code",
+      errorSummary: "NullPointerException in UserService.findById()",
+      diff: "diff --git a/src/main.ts b/src/main.ts\n--- a/src/main.ts\n+++ b/src/main.ts\n-old code\n+new code",
       confidence: {
         status: ConfidenceStatus.REPRODUCED_AND_VERIFIED,
         percentage: 90,
         reproduced: true,
         testsPass: true,
       },
-      filesChanged: 2,
     })
 
     expect(comment).toContain("#fix-test123")
     expect(comment).toContain("Fixed the null pointer exception")
-    expect(comment).toContain("Error at line 42")
+    expect(comment).toContain("NullPointerException in UserService.findById()")
     expect(comment).toContain("-old code")
     expect(comment).toContain("Reproduced and verified")
     expect(comment).toContain("90% confidence")
     expect(comment).toContain("Reproduced:** Yes")
     expect(comment).toContain("Tests pass after fix:** Yes")
-    expect(comment).toContain("2 files changed")
+    expect(comment).toContain("src/main.ts")
     expect(comment).toContain("/ci-assistant accept")
     expect(comment).toContain("/ci-assistant alternative")
     expect(comment).toContain("<details>")
   })
 
+  it("omits error section when errorSummary is empty", () => {
+    const comment = formatSuggestionComment({
+      fixId: "#fix-no-error",
+      summary: "Added tests",
+      errorSummary: "",
+      diff: "diff --git a/test.ts b/test.ts\n+++ b/test.ts\n+new test",
+      confidence: {
+        status: ConfidenceStatus.NEITHER,
+        percentage: 70,
+        reproduced: false,
+        testsPass: false,
+      },
+    })
+
+    expect(comment).not.toContain("What failed")
+    expect(comment).toContain("Added tests")
+  })
+
+  it("splits diff per file with collapsible sections", () => {
+    const diff =
+      "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n-old\n+new\n" +
+      "diff --git a/src/bar.ts b/src/bar.ts\n--- a/src/bar.ts\n+++ b/src/bar.ts\n-old2\n+new2"
+    const comment = formatSuggestionComment({
+      fixId: "#fix-multi",
+      summary: "Multi-file fix",
+      errorSummary: "",
+      diff,
+      confidence: {
+        status: ConfidenceStatus.REPRODUCED_AND_VERIFIED,
+        percentage: 95,
+        reproduced: true,
+        testsPass: true,
+      },
+    })
+
+    expect(comment).toContain("<summary>src/foo.ts</summary>")
+    expect(comment).toContain("<summary>src/bar.ts</summary>")
+    expect(comment).toContain("-old")
+    expect(comment).toContain("+new2")
+  })
+
   it("truncates large diffs", () => {
-    const largeDiff = "x".repeat(60000)
+    const largeDiff = "diff --git a/big.ts b/big.ts\n+++ b/big.ts\n" + "x".repeat(60000)
     const comment = formatSuggestionComment({
       fixId: "#fix-big",
       summary: "Big fix",
-      errorDetails: "Error",
+      errorSummary: "",
       diff: largeDiff,
       confidence: {
         status: ConfidenceStatus.NEITHER,
@@ -209,7 +249,6 @@ describe("formatSuggestionComment", () => {
         reproduced: false,
         testsPass: false,
       },
-      filesChanged: 10,
     })
 
     expect(comment.length).toBeLessThan(65536)
