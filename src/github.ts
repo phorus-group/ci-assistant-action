@@ -1,6 +1,6 @@
 import * as exec from "@actions/exec"
 import * as github from "@actions/github"
-import { log, logWarning, LogPrefix } from "./claude"
+import { log, logWarning, logError, LogPrefix } from "./claude"
 import {
   MetaComment,
   createDefaultMeta,
@@ -573,46 +573,102 @@ CI Assistant was unable to produce a fix for this failure after all retry attemp
 }
 
 export async function createBranchAndPushFix(branchName: string, baseSha: string): Promise<void> {
-  await exec.exec("git", ["checkout", "-b", branchName, baseSha], { silent: true })
+  log(LogPrefix.GIT, `Creating branch ${branchName} from ${baseSha}`)
+
+  const checkout = await exec.getExecOutput("git", ["checkout", "-b", branchName, baseSha], {
+    silent: true,
+    ignoreReturnCode: true,
+  })
+  if (checkout.exitCode !== 0) {
+    logError(
+      LogPrefix.GIT,
+      `checkout -b failed (exit ${checkout.exitCode}): ${checkout.stderr.trim()}`
+    )
+    throw new Error(`git checkout -b ${branchName} failed with exit code ${checkout.exitCode}`)
+  }
 
   await exec.exec("git", ["add", "-A"], { silent: true })
 
-  await exec.exec("git", ["commit", "-m", `ci-assistant: automated fix for pipeline failure`], {
-    silent: true,
-  })
+  const commit = await exec.getExecOutput(
+    "git",
+    ["commit", "-m", `ci-assistant: automated fix for pipeline failure`],
+    { silent: true, ignoreReturnCode: true }
+  )
+  if (commit.exitCode !== 0) {
+    logError(LogPrefix.GIT, `commit failed (exit ${commit.exitCode}): ${commit.stderr.trim()}`)
+    throw new Error(`git commit failed with exit code ${commit.exitCode}`)
+  }
 
-  await exec.exec("git", ["push", "origin", branchName], { silent: true })
+  log(LogPrefix.GIT, `Pushing branch ${branchName}`)
+  const push = await exec.getExecOutput("git", ["push", "origin", branchName], {
+    silent: true,
+    ignoreReturnCode: true,
+  })
+  if (push.exitCode !== 0) {
+    logError(LogPrefix.GIT, `push failed (exit ${push.exitCode}): ${push.stderr.trim()}`)
+    throw new Error(`git push origin ${branchName} failed with exit code ${push.exitCode}`)
+  }
 
   log(LogPrefix.GIT, `Created and pushed branch ${branchName}`)
 }
 
 export async function createFixRef(prNumber: number, fixId: string): Promise<void> {
   const ref = `refs/ci-assistant/${prNumber}/${fixId}`
-  let tree = ""
-  let commit = ""
+  log(LogPrefix.GIT, `Creating fix ref ${ref}`)
 
   await exec.exec("git", ["add", "-A"], { silent: true })
 
   const treeResult = await exec.getExecOutput("git", ["write-tree"], {
     silent: true,
+    ignoreReturnCode: true,
   })
-  tree = treeResult.stdout.trim()
+  if (treeResult.exitCode !== 0) {
+    logError(
+      LogPrefix.GIT,
+      `write-tree failed (exit ${treeResult.exitCode}): ${treeResult.stderr.trim()}`
+    )
+    throw new Error(`git write-tree failed with exit code ${treeResult.exitCode}`)
+  }
+  const tree = treeResult.stdout.trim()
 
-  const headResult = await exec.getExecOutput("git", ["rev-parse", "HEAD"], { silent: true })
+  const headResult = await exec.getExecOutput("git", ["rev-parse", "HEAD"], {
+    silent: true,
+    ignoreReturnCode: true,
+  })
+  if (headResult.exitCode !== 0) {
+    logError(
+      LogPrefix.GIT,
+      `rev-parse HEAD failed (exit ${headResult.exitCode}): ${headResult.stderr.trim()}`
+    )
+    throw new Error(`git rev-parse HEAD failed with exit code ${headResult.exitCode}`)
+  }
   const parent = headResult.stdout.trim()
 
   const commitResult = await exec.getExecOutput(
     "git",
     ["commit-tree", tree, "-p", parent, "-m", `ci-assistant: ${fixId}`],
-    { silent: true }
+    { silent: true, ignoreReturnCode: true }
   )
-  commit = commitResult.stdout.trim()
+  if (commitResult.exitCode !== 0) {
+    logError(
+      LogPrefix.GIT,
+      `commit-tree failed (exit ${commitResult.exitCode}): ${commitResult.stderr.trim()}`
+    )
+    throw new Error(`git commit-tree failed with exit code ${commitResult.exitCode}`)
+  }
+  const commit = commitResult.stdout.trim()
 
-  await exec.exec("git", ["push", "origin", `${commit}:${ref}`], {
+  log(LogPrefix.GIT, `Pushing fix ref ${ref}`)
+  const push = await exec.getExecOutput("git", ["push", "origin", `${commit}:${ref}`], {
     silent: true,
+    ignoreReturnCode: true,
   })
+  if (push.exitCode !== 0) {
+    logError(LogPrefix.GIT, `push ref failed (exit ${push.exitCode}): ${push.stderr.trim()}`)
+    throw new Error(`git push ${ref} failed with exit code ${push.exitCode}`)
+  }
 
-  await exec.exec("git", ["reset", "--hard", "HEAD"], { silent: true })
+  await exec.exec("git", ["reset", "--hard", "HEAD"], { silent: true, ignoreReturnCode: true })
   log(LogPrefix.GIT, `Stored fix as ref ${ref}`)
 }
 

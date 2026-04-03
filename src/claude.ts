@@ -673,7 +673,7 @@ export async function runWithRetries(
   if (totalInputTokens > 0 || totalOutputTokens > 0) {
     log(
       LogPrefix.USAGE,
-      `Total across ${attempts.length} attempt(s): In: ${totalInputTokens} | Out: ${totalOutputTokens}`
+      `Total across ${attempts.length} attempt(s): In: ${totalInputTokens} | Out: ${totalOutputTokens} | Cache read: ${totalCacheReadTokens} | Cache create: ${totalCacheCreationTokens}`
     )
   }
 
