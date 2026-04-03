@@ -1,4 +1,5 @@
 import * as core from "@actions/core"
+import * as exec from "@actions/exec"
 import {
   Mode,
   State,
@@ -211,6 +212,21 @@ export async function run(
     const github = githubClient || new OctokitGitHubClient(ghToken)
     const slack =
       slackClient || (inputs.slackBotToken ? new HttpSlackClient(inputs.slackBotToken) : null)
+
+    // Configure git identity so commits (createBranchAndPushFix, createFixRef)
+    // don't fail on runners without a default identity.
+    const botUser = await github.getAuthenticatedUser()
+    const botEmail = botUser.endsWith("[bot]")
+      ? `${botUser.replace("[bot]", "")}[bot]@users.noreply.github.com`
+      : `${botUser}@users.noreply.github.com`
+    await exec.exec("git", ["config", "user.name", botUser], {
+      silent: true,
+      ignoreReturnCode: true,
+    })
+    await exec.exec("git", ["config", "user.email", botEmail], {
+      silent: true,
+      ignoreReturnCode: true,
+    })
 
     // Clean orphaned refs at the start of every invocation.
     // Full cleanup (closing stale PRs, resetting state) only runs in dedicated
