@@ -175,6 +175,7 @@ export function createDefaultMeta(): MetaComment {
 
 export const DEFAULT_META: MetaComment = createDefaultMeta()
 
+// GitHub markdown emoji shortcodes (for PR comments)
 export const CONFIDENCE_STATUS_ICONS: Record<ConfidenceStatus, string> = {
   [ConfidenceStatus.REPRODUCED_AND_VERIFIED]: ":green_circle:",
   [ConfidenceStatus.NOT_REPRODUCED_TESTS_PASS]: ":yellow_circle:",
@@ -182,6 +183,16 @@ export const CONFIDENCE_STATUS_ICONS: Record<ConfidenceStatus, string> = {
   [ConfidenceStatus.NEITHER]: ":orange_circle:",
   [ConfidenceStatus.NON_CODE]: ":blue_circle:",
   [ConfidenceStatus.GAVE_UP]: ":red_circle:",
+}
+
+// Unicode emojis (for Slack Block Kit mrkdwn which does not support shortcodes)
+export const CONFIDENCE_STATUS_ICONS_SLACK: Record<ConfidenceStatus, string> = {
+  [ConfidenceStatus.REPRODUCED_AND_VERIFIED]: "\u{1F7E2}",
+  [ConfidenceStatus.NOT_REPRODUCED_TESTS_PASS]: "\u{1F7E1}",
+  [ConfidenceStatus.REPRODUCED_TESTS_FAIL]: "\u{1F7E0}",
+  [ConfidenceStatus.NEITHER]: "\u{1F7E0}",
+  [ConfidenceStatus.NON_CODE]: "\u{1F535}",
+  [ConfidenceStatus.GAVE_UP]: "\u{1F534}",
 }
 
 export const CONFIDENCE_STATUS_LABELS: Record<ConfidenceStatus, string> = {

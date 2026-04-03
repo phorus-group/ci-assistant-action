@@ -383,7 +383,7 @@ Among attempts with the same status tier, the one with the higher confidence per
 
 The percentage (0-100%) is independent of the status category. A :green_circle: at 60% means the error was reproduced and tests pass, but Claude is not confident it found the real root cause. A :orange_circle: at 90% means it could not reproduce, but is very confident from the logs.
 
-Displayed in comments and Slack as: `:green_circle: Reproduced and verified (85% confidence)`
+Displayed in PR comments as: `:green_circle: Reproduced and verified (85% confidence)`. Slack uses Unicode emojis instead of shortcodes.
 
 ### How confidence is parsed
 

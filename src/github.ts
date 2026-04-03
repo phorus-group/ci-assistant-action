@@ -442,7 +442,7 @@ export async function writeMeta(
   meta: MetaComment,
   commentId: number | null
 ): Promise<number> {
-  const body = `${META_MARKER} ${JSON.stringify(meta)} -->`
+  const body = `<sub>CI Assistant state. Do not edit or delete this comment.</sub>\n\n${META_MARKER} ${JSON.stringify(meta)} -->`
 
   if (commentId) {
     await client.updateComment(commentId, body)

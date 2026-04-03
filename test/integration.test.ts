@@ -336,6 +336,34 @@ describe("Integration Tests", () => {
       const error = comments.find((c) => c.body.includes("not found"))
       expect(error).toBeDefined()
     })
+
+    it("rejects accept for pushed fix with clear message", async () => {
+      // Override the beforeEach meta by updating the existing comment
+      const comments = github.getCommentsForPR(42)
+      const metaComment = comments.find((c) => c.body.includes("ci-assistant-meta"))
+      const meta = {
+        ...DEFAULT_META,
+        state: State.ACTIVE,
+        latestFix: "#fix-pushed1",
+        fixes: [],
+      }
+      await writeMeta(github, 42, meta, metaComment?.id ?? null)
+
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({ mode: "command" })
+      cleanupEnv()
+      cleanupEnv = setupEnv({
+        INPUT_COMMENT_BODY: "/ci-assistant accept #fix-pushed1",
+        GITHUB_ACTOR: "some-user",
+      })
+
+      await run(github, slack, claude, git)
+
+      const allComments = github.getCommentsForPR(42)
+      const msg = allComments.find((c) => c.body.includes("pushed directly"))
+      expect(msg).toBeDefined()
+      expect(msg!.body).toContain("Merge the PR")
+    })
   })
 
   describe("Alternative flow", () => {
@@ -2547,11 +2575,12 @@ describe("Integration Tests", () => {
       expect(suggestion!.body).toContain("pushed directly")
       expect(suggestion!.body).toContain("Merge the PR")
 
-      // Meta should NOT have the fix in meta.fixes (no ref to accept)
+      // Meta should NOT have the fix in meta.fixes (no ref to accept),
+      // but latestFix should be set for accurate tracking
       const { meta } = await readMeta(github, ciAssistantPr!.number, "github-actions[bot]")
       expect(meta.state).toBe(State.ACTIVE)
       expect(meta.fixes.length).toBe(0)
-      expect(meta.latestFix).toBeNull()
+      expect(meta.latestFix).not.toBeNull()
     })
 
     it("second failure on existing ci-assistant PR stores fix as ref for accept", async () => {

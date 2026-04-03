@@ -578,6 +578,9 @@ async function handleAutoFix(
     prNumber = pr.number
     isNewCiAssistantPr = false
     fixAlreadyPushed = true
+
+    // Write initial meta as the first comment on the new PR
+    metaCommentId = await writeMeta(github, prNumber, meta, null)
   }
 
   const prUrl = () =>
@@ -639,8 +642,9 @@ async function handleAutoFix(
     if (prNumber > 0) {
       if (fixAlreadyPushed) {
         // Fix was pushed directly to the ci-assistant branch as part of PR creation.
-        // No ref needed (cherry-pick would fail since changes are already on the branch).
-        // Don't add to meta.fixes so accept doesn't try to use a non-existent ref.
+        // No ref is created (cherry-pick would fail since changes are already on the branch).
+        // Track the fix in meta for accurate counts but accept will reject with a clear message.
+        meta.latestFix = fixId
         const pushedNote =
           "\n\n> This fix has been pushed directly to the branch. Merge the PR to apply it."
         await github.createComment(
@@ -951,6 +955,14 @@ async function handleAccept(
   }
 
   if (!meta.fixes.includes(fixId)) {
+    // Fix may have been pushed directly to the branch (no ref to cherry-pick)
+    if (meta.latestFix === fixId) {
+      await github.createComment(
+        prNumber,
+        `Fix \`${fixId}\` was pushed directly to the branch. Merge the PR to apply it.`
+      )
+      return
+    }
     await github.createComment(
       prNumber,
       `Fix \`${fixId}\` not found. Available fixes: ${meta.fixes.map((f) => `\`${f}\``).join(", ")}`

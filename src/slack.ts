@@ -1,7 +1,7 @@
-import { logWarning, LogPrefix } from "./claude"
+import { log, logWarning, LogPrefix } from "./claude"
 import {
   ConfidenceResult,
-  CONFIDENCE_STATUS_ICONS,
+  CONFIDENCE_STATUS_ICONS_SLACK,
   CONFIDENCE_STATUS_LABELS,
   MetaComment,
   SlackBlock,
@@ -56,6 +56,7 @@ export class HttpSlackClient implements SlackClient {
         logWarning(LogPrefix.SLACK, `postMessage failed: ${data.error}`)
         return null
       }
+      log(LogPrefix.SLACK, `Posted message to ${channel}${threadTs ? ` (thread ${threadTs})` : ""}`)
       return data.ts ?? null
     } catch (error) {
       logWarning(LogPrefix.SLACK, `postMessage error: ${error}`)
@@ -87,6 +88,8 @@ export class HttpSlackClient implements SlackClient {
       const data = (await response.json()) as { ok: boolean; error?: string; ts?: string }
       if (!data.ok) {
         logWarning(LogPrefix.SLACK, `updateMessage failed: ${data.error}`)
+      } else {
+        log(LogPrefix.SLACK, `Updated message in ${channel} (ts ${ts})`)
       }
     } catch (error) {
       logWarning(LogPrefix.SLACK, `updateMessage error: ${error}`)
@@ -133,7 +136,7 @@ export function buildSuggestionBlocks(params: {
 }): { blocks: SlackBlock[]; text: string } {
   const { repo, branch, fixId, confidence, meta, prUrl } = params
 
-  const icon = CONFIDENCE_STATUS_ICONS[confidence.status]
+  const icon = CONFIDENCE_STATUS_ICONS_SLACK[confidence.status]
   const label = CONFIDENCE_STATUS_LABELS[confidence.status]
 
   const blocks: SlackBlock[] = [
@@ -141,7 +144,7 @@ export function buildSuggestionBlocks(params: {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:stethoscope: *CI Assistant* for \`${repo}\` on \`${branch}\`\n\n${icon} ${label} (${confidence.percentage}% confidence)\nFix: \`${fixId}\``,
+        text: `\u{1F916} *CI Assistant* for \`${repo}\` on \`${branch}\`\n\n${icon} ${label} (${confidence.percentage}% confidence)\nFix: \`${fixId}\``,
       },
     },
     {
@@ -160,7 +163,7 @@ export function buildSuggestionBlocks(params: {
       elements: [
         {
           type: "mrkdwn",
-          text: `Fixes suggested: ${meta.fixes.length} | Status: awaiting review | Reproduced: ${confidence.reproduced ? "yes" : "no"} | Tests pass: ${confidence.testsPass ? "yes" : "no"} | Confidence: ${confidence.percentage}%`,
+          text: `Fixes suggested: ${meta.fixes.length + (meta.latestFix && !meta.fixes.includes(meta.latestFix) ? 1 : 0)} | Status: awaiting review | Reproduced: ${confidence.reproduced ? "yes" : "no"} | Tests pass: ${confidence.testsPass ? "yes" : "no"} | Confidence: ${confidence.percentage}%`,
         },
       ],
     },
@@ -183,7 +186,7 @@ export function buildStatusUpdateBlocks(params: {
 
   let confidenceText = ""
   if (confidence) {
-    const icon = CONFIDENCE_STATUS_ICONS[confidence.status]
+    const icon = CONFIDENCE_STATUS_ICONS_SLACK[confidence.status]
     const label = CONFIDENCE_STATUS_LABELS[confidence.status]
     confidenceText = `\n${icon} ${label} (${confidence.percentage}% confidence)`
   }
@@ -193,7 +196,7 @@ export function buildStatusUpdateBlocks(params: {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:stethoscope: *CI Assistant* for \`${repo}\` on \`${branch}\`${confidenceText}\n\nStatus: ${status}`,
+        text: `\u{1F916} *CI Assistant* for \`${repo}\` on \`${branch}\`${confidenceText}\n\nStatus: ${status}`,
       },
     },
     {
@@ -212,7 +215,7 @@ export function buildStatusUpdateBlocks(params: {
       elements: [
         {
           type: "mrkdwn",
-          text: `Fixes suggested: ${meta.fixes.length} | Commands used: ${meta.totalCt}${confidence ? ` | Reproduced: ${confidence.reproduced ? "yes" : "no"} | Tests pass: ${confidence.testsPass ? "yes" : "no"}` : ""}`,
+          text: `Fixes suggested: ${meta.fixes.length + (meta.latestFix && !meta.fixes.includes(meta.latestFix) ? 1 : 0)} | Commands used: ${meta.totalCt}${confidence ? ` | Reproduced: ${confidence.reproduced ? "yes" : "no"} | Tests pass: ${confidence.testsPass ? "yes" : "no"}` : ""}`,
         },
       ],
     },
@@ -236,7 +239,7 @@ export function buildExploitAlertBlocks(params: {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:warning: *Potential exploitation attempt* detected in \`${repo}\` PR #${prNumber} by \`${username}\``,
+        text: `\u{26A0}\u{FE0F} *Potential exploitation attempt* detected in \`${repo}\` PR #${prNumber} by \`${username}\``,
       },
     },
     {
@@ -277,7 +280,7 @@ export function buildUnresolvedTagBlocks(params: { repo: string; tag: string; an
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:warning: *CI Assistant* tag \`${tag}\` failed in \`${repo}\` but the source branch could not be determined.\n\nNo PR was created to avoid targeting the wrong branch. A developer should investigate and apply the fix manually.`,
+        text: `\u{26A0}\u{FE0F} *CI Assistant* tag \`${tag}\` failed in \`${repo}\` but the source branch could not be determined.\n\nNo PR was created to avoid targeting the wrong branch. A developer should investigate and apply the fix manually.`,
       },
     },
     {
@@ -304,12 +307,22 @@ export async function postOrUpdateSlack(
   text: string,
   threadTs?: string
 ): Promise<string | null> {
-  if (!channel) return null
+  if (!channel) {
+    log(LogPrefix.SLACK, "No channel configured, skipping Slack")
+    return null
+  }
 
   if (meta.slackTs) {
+    log(LogPrefix.SLACK, `Updating existing message (ts ${meta.slackTs})`)
     await client.updateMessage(channel, meta.slackTs, blocks, text)
     return meta.slackTs
   }
 
+  log(
+    LogPrefix.SLACK,
+    threadTs
+      ? `Posting new message to ${channel} in thread ${threadTs}`
+      : `Posting new message to ${channel} (no thread)`
+  )
   return await client.postMessage(channel, blocks, text, threadTs)
 }
