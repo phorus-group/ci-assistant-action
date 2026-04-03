@@ -341,6 +341,8 @@ export async function updateParentFailureStatus(
     return
   }
 
+  log(LogPrefix.SLACK, `Parent message has ${blocks.length} blocks`)
+
   // Remove any existing ci-assistant context block
   const filtered = blocks.filter(
     (b) =>
@@ -350,6 +352,11 @@ export async function updateParentFailureStatus(
           (e) => e.type === "mrkdwn" && e.text?.startsWith(CI_ASSISTANT_BLOCK_MARKER)
         )
       )
+  )
+
+  log(
+    LogPrefix.SLACK,
+    `Filtered to ${filtered.length} blocks (removed ${blocks.length - filtered.length})`
   )
 
   // Build the status text

@@ -2,6 +2,7 @@ jest.mock("@actions/core")
 jest.mock("@actions/exec")
 jest.mock("@actions/github")
 
+import * as exec from "@actions/exec"
 import {
   readMeta,
   writeMeta,
@@ -10,6 +11,7 @@ import {
   formatNonCodeComment,
   formatGaveUpComment,
   cleanupOrphanedRefs,
+  createBranchAndPushFix,
 } from "../src/github"
 import { MockGitHubClient } from "./mocks"
 import { DEFAULT_META, State, META_MARKER, SUGGESTION_HEADER, ConfidenceStatus } from "../src/types"
@@ -329,5 +331,99 @@ describe("cleanupOrphanedRefs", () => {
   it("returns 0 when no refs exist", async () => {
     const cleaned = await cleanupOrphanedRefs(github)
     expect(cleaned).toBe(0)
+  })
+})
+
+describe("createBranchAndPushFix", () => {
+  const mockExec = exec.exec as jest.Mock
+  const mockGetExecOutput = exec.getExecOutput as jest.Mock
+
+  beforeEach(() => {
+    mockExec.mockResolvedValue(0)
+    mockGetExecOutput.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" })
+  })
+
+  afterEach(() => {
+    jest.resetAllMocks()
+  })
+
+  it("creates branch and pushes when no existing branch", async () => {
+    // rev-parse fails (no local branch)
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--verify") {
+        return { exitCode: 1, stdout: "", stderr: "not found" }
+      }
+      if (args[0] === "ls-remote") {
+        return { exitCode: 0, stdout: "", stderr: "" }
+      }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    })
+
+    await createBranchAndPushFix("ci-assistant/main", "abc123", "fix msg")
+
+    const checkoutCall = mockGetExecOutput.mock.calls.find(
+      (c: string[][]) => c[1]?.[0] === "checkout"
+    )
+    expect(checkoutCall).toBeDefined()
+    expect(checkoutCall[1]).toContain("ci-assistant/main")
+
+    const commitCall = mockGetExecOutput.mock.calls.find((c: string[][]) => c[1]?.[0] === "commit")
+    expect(commitCall).toBeDefined()
+    expect(commitCall[1]).toContain("fix msg")
+  })
+
+  it("deletes existing local and remote branch before creating", async () => {
+    const deletedBranches: string[] = []
+
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--verify") {
+        return { exitCode: 0, stdout: "sha123", stderr: "" }
+      }
+      if (args[0] === "ls-remote") {
+        return { exitCode: 0, stdout: "sha123\trefs/heads/ci-assistant/main", stderr: "" }
+      }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    })
+
+    mockExec.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "branch" && args[1] === "-D") {
+        deletedBranches.push(`local:${args[2]}`)
+      }
+      if (args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+        deletedBranches.push(`remote:${args[3]}`)
+      }
+      return 0
+    })
+
+    await createBranchAndPushFix("ci-assistant/main", "abc123")
+
+    expect(deletedBranches).toContain("local:ci-assistant/main")
+    expect(deletedBranches).toContain("remote:ci-assistant/main")
+  })
+
+  it("skips deletion when no existing branch", async () => {
+    const execCalls: string[][] = []
+
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "rev-parse" && args[1] === "--verify") {
+        return { exitCode: 1, stdout: "", stderr: "" }
+      }
+      if (args[0] === "ls-remote") {
+        return { exitCode: 0, stdout: "", stderr: "" }
+      }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    })
+
+    mockExec.mockImplementation((_cmd: string, args: string[]) => {
+      execCalls.push(args)
+      return 0
+    })
+
+    await createBranchAndPushFix("ci-assistant/main", "abc123")
+
+    const deleteCalls = execCalls.filter(
+      (a) => (a[0] === "branch" && a[1] === "-D") || (a[1] === "origin" && a[2] === "--delete")
+    )
+    expect(deleteCalls.length).toBe(0)
   })
 })

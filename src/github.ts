@@ -318,12 +318,30 @@ export class OctokitGitHubClient implements GitHubClient {
   }
 
   async getAuthenticatedUser(): Promise<string> {
+    // Try user token first (OAuth/PAT)
     try {
       const { data } = await this.octokit.rest.users.getAuthenticated()
+      log(LogPrefix.AUTH, `Authenticated as user: ${data.login}`)
       return data.login
     } catch {
-      return "github-actions[bot]"
+      // users.getAuthenticated fails for GitHub App installation tokens
     }
+
+    // Try GitHub App installation token
+    try {
+      const { data } = await this.octokit.rest.apps.getAuthenticated()
+      const botLogin = `${data.slug}[bot]`
+      log(LogPrefix.AUTH, `Authenticated as GitHub App: ${botLogin}`)
+      return botLogin
+    } catch {
+      // apps.getAuthenticated also failed
+    }
+
+    log(
+      LogPrefix.AUTH,
+      "Could not determine authenticated user, falling back to github-actions[bot]"
+    )
+    return "github-actions[bot]"
   }
 
   async listRefs(prefix: string): Promise<string[]> {
@@ -605,6 +623,29 @@ export async function createBranchAndPushFix(
   commitMessage = "ci-assistant: automated fix for pipeline failure"
 ): Promise<void> {
   log(LogPrefix.GIT, `Creating branch ${branchName} from ${baseSha}`)
+
+  // Delete existing branch if it exists (e.g., from a previous ci-assistant PR that was closed)
+  const localExists = await exec.getExecOutput("git", ["rev-parse", "--verify", branchName], {
+    silent: true,
+    ignoreReturnCode: true,
+  })
+  if (localExists.exitCode === 0) {
+    log(LogPrefix.GIT, `Local branch ${branchName} already exists, deleting`)
+    await exec.exec("git", ["branch", "-D", branchName], { silent: true, ignoreReturnCode: true })
+  }
+
+  const remoteExists = await exec.getExecOutput(
+    "git",
+    ["ls-remote", "--heads", "origin", branchName],
+    { silent: true, ignoreReturnCode: true }
+  )
+  if (remoteExists.stdout.trim()) {
+    log(LogPrefix.GIT, `Remote branch ${branchName} already exists, deleting`)
+    await exec.exec("git", ["push", "origin", "--delete", branchName], {
+      silent: true,
+      ignoreReturnCode: true,
+    })
+  }
 
   const checkout = await exec.getExecOutput("git", ["checkout", "-b", branchName, baseSha], {
     silent: true,
