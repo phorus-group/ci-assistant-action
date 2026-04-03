@@ -546,23 +546,20 @@ export async function runWithRetries(
 
     // Build prompt
     let prompt: string
-    const commonValues = {
+    const values = {
       FAILURE_LOGS: runContextRef,
-      FAILURE_LOGS_IF_AVAILABLE: runContextRef,
       PREVIOUS_SUGGESTIONS: suggestionsRef,
       USER_CONTEXT: userContext,
       CONVERSATION_HISTORY: historyRef,
-      REPRODUCTION_OUTPUT: "",
       REPO: process.env.GITHUB_REPOSITORY || "",
       BRANCH: inputs.failedBranch,
       SHA: inputs.failedSha,
     }
 
     if (i === 1 && commandPrompt) {
-      // Command-specific prompt template (suggest, alternative)
-      prompt = renderPrompt(commandPrompt, commonValues)
+      prompt = renderPrompt(commandPrompt, values)
     } else if (i === 1) {
-      prompt = renderPrompt(inputs.autoFixPrompt, commonValues)
+      prompt = renderPrompt(inputs.autoFixPrompt, values)
     } else {
       const previousAttemptsContext = attempts
         .map(
@@ -573,7 +570,7 @@ export async function runWithRetries(
 
       const prevAttempt = attempts[i - 2]
       prompt = renderPrompt(inputs.retryPrompt, {
-        ...commonValues,
+        ...values,
         PREVIOUS_ATTEMPTS: previousAttemptsContext,
         REPRODUCTION_OUTPUT: prevAttempt?.outputFile
           ? `Previous attempt output saved to ${prevAttempt.outputFile}. Read it for reproduction details.`
@@ -582,16 +579,7 @@ export async function runWithRetries(
     }
 
     // Append confidence prompt
-    prompt +=
-      "\n\n" +
-      renderPrompt(inputs.confidencePrompt, {
-        FAILURE_LOGS: runContextRef,
-        REPRODUCTION_OUTPUT: "",
-        FIX_DIFF: "{{WILL_BE_FILLED_AFTER_FIX}}",
-        POST_FIX_TEST_OUTPUT: "{{WILL_BE_FILLED_AFTER_TESTS}}",
-        PREVIOUS_SUGGESTIONS: suggestionsRef,
-        USER_CONTEXT: userContext,
-      })
+    prompt += "\n\n" + inputs.confidencePrompt
 
     const result = await runner.run(prompt, model, inputs.maxTurns)
 
@@ -603,7 +591,7 @@ export async function runWithRetries(
       totalDurationMs += result.usage.durationMs
     }
 
-    const confidence = parseConfidence(result.output, result.diff, result.exitCode)
+    const confidence = parseConfidence(result.output, result.diff)
 
     // Write full Claude output per attempt so retries can reference it
     const outputFile = writeContextFile(
@@ -712,7 +700,7 @@ export function selectBestAttempt(attempts: RetryAttempt[]): RetryAttempt {
   return sorted[0]
 }
 
-export function parseConfidence(output: string, diff: string, _exitCode: number): ConfidenceResult {
+export function parseConfidence(output: string, diff: string): ConfidenceResult {
   const percentMatch = output.match(/CONFIDENCE_PERCENT:\s*(\d+)/)
   const percentage = percentMatch ? Math.min(100, Math.max(0, parseInt(percentMatch[1]))) : 50
 

@@ -303,7 +303,7 @@ When a tag pipeline fails (for example, `v1.0.0`), the action resolves the tag's
 `/ci-assistant suggest <text>` works on any PR in any state, even without a pipeline failure:
 
 - The user's text is passed to Claude as context instead of failure logs
-- The `suggestPrompt` template is used (with `{{USER_CONTEXT}}` and `{{FAILURE_LOGS_IF_AVAILABLE}}`)
+- The `suggestPrompt` template is used (with `{{USER_CONTEXT}}` and `{{FAILURE_LOGS}}`)
 - Same suggestion, ref storage, and accept flow applies
 - Useful for requests like "add tests for the UserService", "add error handling to the parser", "refactor this function"
 - If the command produces a fix, state transitions to `active`. If it fails, state transitions to `gave-up`.
@@ -348,7 +348,7 @@ Each auto-fix or command-triggered fix runs up to `max-retries` attempts (defaul
 1. **First attempt**: uses `autoFixPrompt` (or the command-specific prompt for suggest/alternative) with failure logs, repo, branch, and SHA context
 2. **Working directory reset**: before each subsequent attempt, `git checkout -- .` and `git clean -fd` restore a clean state
 3. **Subsequent attempts**: use `retryPrompt` which includes what each previous attempt tried and why it still failed
-4. **Confidence prompt**: appended to every attempt, asking Claude to output `CONFIDENCE_PERCENT: <number>`
+4. **Confidence prompt**: appended to every attempt, asking Claude to output `REPRODUCED`, `VERIFIED`, and `CONFIDENCE_PERCENT` markers
 5. **Early exit**: the loop stops immediately if an attempt achieves `REPRODUCED_AND_VERIFIED`, or `NOT_REPRODUCED_TESTS_PASS` with ≥70% confidence
 6. **Working directory restore**: after the loop, if the best attempt was not the last one, the action resets the working directory and re-applies the best attempt's diff via `git apply`
 7. **Diff capture**: after each attempt, all changes (including new files) are captured via `git add -A` + `git diff --staged`, then unstaged for the next attempt
@@ -392,9 +392,9 @@ The action parses Claude's output text to determine percentage, whether the erro
 <details>
 <summary>Parsing rules</summary>
 
-- **Percentage**: extracted from `CONFIDENCE_PERCENT: <number>` in the output. Clamped to 0-100. Defaults to 50% if the marker is not found in the output.
-- **Reproduced**: `true` if output matches "reproduced", "error reproduced", or "successfully reproduced" (case-insensitive) AND does NOT match "could not reproduce", "unable to reproduce", or "cannot reproduce".
-- **Tests pass**: `true` if output matches "test pass", "tests pass", "all tests pass", "build success", or "verification success" (case-insensitive) AND does NOT match "test fail", "test failure", or "build fail" in the output **after** the CONFIDENCE_PERCENT marker. This prevents early mentions of test failure (before Claude fixed it) from negating the final result.
+- **Percentage**: extracted from `CONFIDENCE_PERCENT: <number>` in the output. Clamped to 0-100. Defaults to 50% if the marker is not found.
+- **Reproduced**: parsed from the `REPRODUCED: YES` or `REPRODUCED: NO` marker in Claude's output (case-insensitive). Defaults to `false` if the marker is not found.
+- **Verified**: parsed from the `VERIFIED: YES` or `VERIFIED: NO` marker in Claude's output (case-insensitive). Defaults to `false` if the marker is not found.
 
 </details>
 
@@ -406,7 +406,7 @@ If the marker is present: status is `NON_CODE`. Otherwise: status is `GAVE_UP` w
 
 ## Commands reference
 
-All commands are triggered by posting a PR comment starting with `/ci-assistant`. For a walkthrough with examples, see [What can you do with it?](#what-can-you-do-with-it) above.
+All commands are triggered by posting a PR comment starting with `/ci-assistant`. For a walkthrough with examples, see [Usage overview](#usage-overview).
 
 ### User commands
 
@@ -579,7 +579,7 @@ All prompt inputs use `{{PLACEHOLDER}}` syntax. The action replaces each `{{KEY}
 
 **auto-fix-prompt**:
 ```
-Here are the CI pipeline failure logs:
+A CI pipeline has failed. Context files are available in .ci-assistant/.
 
 {{FAILURE_LOGS}}
 
@@ -587,42 +587,42 @@ Repository: {{REPO}}
 Branch: {{BRANCH}}
 Commit: {{SHA}}
 
-Reproduce the error, implement a fix, and verify it works by running the relevant tests.
+Diagnose the failure, implement a fix, and verify it works. Start by grepping the log files for errors or keywords. Only read full files or artifacts if grep is not enough to identify the root cause. Once you know the issue, fix it and run the relevant tests or build to verify.
 ```
 
 **retry-prompt**:
 ```
-Here are the CI pipeline failure logs:
+A CI pipeline has failed. Context files are available in .ci-assistant/.
 
 {{FAILURE_LOGS}}
 
 Previous attempts that did not work:
 {{PREVIOUS_ATTEMPTS}}
 
-Try a fundamentally different approach.
+Read the previous attempt output files to understand what was tried. Take a fundamentally different approach this time.
 ```
 
 **alternative-prompt**:
 ```
-Here are the CI pipeline failure logs:
+A CI pipeline has failed. Context files are available in .ci-assistant/.
 
 {{FAILURE_LOGS}}
 
 Previous fixes already suggested (do NOT repeat these):
 {{PREVIOUS_SUGGESTIONS}}
 
-Try a fundamentally different approach.
+Take a fundamentally different approach from the previous suggestions.
 ```
 
 **suggest-prompt**:
 ```
-Analyze the repository code and implement a fix based on the developer's request. Reproduce the error if possible and verify the fix by running the relevant tests.
+Implement a fix based on the developer's request. If CI failure context is available, use it to understand the issue. Verify the fix works.
 
 Developer's request:
 {{USER_CONTEXT}}
 
-CI failure logs (if available):
-{{FAILURE_LOGS_IF_AVAILABLE}}
+CI failure context (if available):
+{{FAILURE_LOGS}}
 
 CI Assistant conversation history:
 {{CONVERSATION_HISTORY}}
@@ -630,13 +630,13 @@ CI Assistant conversation history:
 
 **explain-prompt**:
 ```
-Analyze the context below. If the developer provides a specific request, respond to it. Otherwise, explain the fix: what each change does, why it addresses the failure, and any relevant technical details. If no fix is present, analyze the failure and provide insights based on the available context. If you need to understand the failure better, reproduce the error by running the relevant tests or build commands.
+If the developer provides a request, respond to it. Otherwise, explain the fix or analyze the failure.
 
 Developer's request (if any):
 {{USER_PROMPT}}
 
-CI failure logs (if available):
-{{FAILURE_LOGS_IF_AVAILABLE}}
+CI failure context (if available):
+{{FAILURE_LOGS}}
 
 Fix diff (if available):
 {{LATEST_FIX_DIFF}}
@@ -650,29 +650,32 @@ Branch: {{BRANCH}}
 
 **confidence-prompt**:
 ```
-Rate your confidence from 0-100% that this fix correctly addresses the issue.
+Rate your confidence and output these markers at the end of your response:
 
-Output exactly: CONFIDENCE_PERCENT: <number>
+REPRODUCED: YES or NO (were you able to reproduce the error locally?)
+VERIFIED: YES or NO (did you deterministically verify the fix works? e.g. running tests, running the build, checking dependency versions, confirming the vulnerability is gone)
+CONFIDENCE_PERCENT: <number from 0 to 100>
+
+If this failure is not caused by the code itself (e.g. infrastructure, flaky tests, runner issues, network errors, timeouts, out of memory), also include: ISSUE_TYPE: NON_CODE
 ```
 
 ### Available placeholders
 
-| Placeholder | Description |
-|---|---|
-| `{{FAILURE_LOGS}}` | Reference to failure context files (logs in `.ci-assistant/logs/`, artifacts in `.ci-assistant/artifacts/`). Claude reads only the relevant parts using Read and Grep. |
-| `{{FAILURE_LOGS_IF_AVAILABLE}}` | Same as above if a failure triggered this run, empty string otherwise |
-| `{{REPO}}` | Repository full name (`owner/repo`) |
-| `{{BRANCH}}` | Branch name |
-| `{{SHA}}` | Commit SHA |
-| `{{PREVIOUS_ATTEMPTS}}` | Summary of each prior retry attempt: what files were modified and test output |
-| `{{PREVIOUS_SUGGESTIONS}}` | Reference to the previous suggestions file (`.ci-assistant/previous-suggestions.txt`). Contains all previous fix suggestions with fix IDs, summaries, and diffs. |
-| `{{USER_CONTEXT}}` | Text provided by the user in `/ci-assistant suggest <text>` |
-| `{{USER_PROMPT}}` | Text provided via `-p` in `/ci-assistant explain -p "<text>"`, empty if not provided |
-| `{{LATEST_FIX_DIFF}}` | Reference to the fix diff file (`.ci-assistant/fix-diff.txt`). Contains the diff being explained (specific fix if `#fix-<id>` given, latest otherwise). |
-| `{{CONVERSATION_HISTORY}}` | Reference to the conversation history file (`.ci-assistant/conversation-history.txt`). Contains all PR comments with author attribution. |
-| `{{FIX_DIFF}}` | Placeholder for the current fix diff (filled by Claude during confidence analysis) |
-| `{{REPRODUCTION_OUTPUT}}` | Output from Claude's attempt to reproduce the error |
-| `{{POST_FIX_TEST_OUTPUT}}` | Output from running tests after applying the fix |
+The "Used by" column shows which default templates reference each placeholder. All placeholders are passed to `renderPrompt` for every fix flow (auto-fix, retry, alternative, suggest), so custom templates can use any of them. The explain flow has its own set of values. Unused placeholders resolve to an empty string.
+
+| Placeholder | Used by | Description |
+|---|---|---|
+| `{{FAILURE_LOGS}}` | auto-fix, retry, alternative, suggest, explain | Reference to failure context files (logs in `.ci-assistant/logs/`, artifacts in `.ci-assistant/artifacts/`). May be empty if no failure triggered the run. |
+| `{{REPO}}` | auto-fix, explain | Repository full name (`owner/repo`) |
+| `{{BRANCH}}` | auto-fix, explain | Branch name |
+| `{{SHA}}` | auto-fix | Commit SHA |
+| `{{PREVIOUS_ATTEMPTS}}` | retry | Summary of each prior retry attempt: what files were modified and where output was saved |
+| `{{REPRODUCTION_OUTPUT}}` | retry | Reference to the previous attempt's output file for reproduction details |
+| `{{PREVIOUS_SUGGESTIONS}}` | alternative | Reference to the previous suggestions file (`.ci-assistant/previous-suggestions.txt`) |
+| `{{USER_CONTEXT}}` | suggest | Text provided by the user in `/ci-assistant suggest <text>` |
+| `{{USER_PROMPT}}` | explain | Text provided via `-p` in `/ci-assistant explain -p "<text>"`, empty if not provided |
+| `{{LATEST_FIX_DIFF}}` | explain | Reference to the fix diff file (`.ci-assistant/fix-diff.txt`) |
+| `{{CONVERSATION_HISTORY}}` | suggest, explain | Reference to the conversation history file (`.ci-assistant/conversation-history.txt`) |
 
 ## Inputs reference
 
@@ -980,9 +983,8 @@ When the fix was pushed directly to a new ci-assistant branch (first fix on a br
 The action downloads logs from the GitHub API by listing failed jobs for the workflow run and fetching each job's logs:
 
 - Only jobs with `conclusion == 'failure'` are included (passing jobs are skipped)
-- Each job's logs are prefixed with `--- Job: <name> ---`
-- If a job's logs can't be downloaded, the section reads `--- Job: <name> (logs unavailable) ---`
-- Logs are written to `.ci-assistant/logs/<JobName>.txt`. Claude reads them on demand using Read and Grep.
+- Each job's logs are written to `.ci-assistant/logs/<JobName>.txt` (one file per failed job)
+- Claude reads them on demand using Read and Grep, loading only the parts it needs
 - If the entire download fails, returns "Failed to download pipeline logs."
 - If no failed jobs are found, returns "No failed jobs found in the workflow run."
 - If no `failed-run-id` is provided, returns "No failure logs available."
@@ -1028,7 +1030,7 @@ Example output:
 [claude] Fixed 3 CVEs by adding version overrides for spring-framework and netty.
 [done] turns=5 in=1500 out=300 cache_read=5000 cache_create=2000 15.2s
 [retry] Fix verified on attempt 1 (not-reproduced-tests-pass, 88%)
-[usage] Total across 1 attempt(s): In: 1500 | Out: 300
+[usage] Total across 1 attempt(s): In: 1500 | Out: 300 | Cache read: 5000 | Cache create: 2000
 ```
 
 The prompt is never shown in the stream. In command mode, the user's input is logged with `[command]` for audit purposes.

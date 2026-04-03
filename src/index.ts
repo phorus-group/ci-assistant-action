@@ -153,7 +153,7 @@ Developer's request:
 {{USER_CONTEXT}}
 
 CI failure context (if available):
-{{FAILURE_LOGS_IF_AVAILABLE}}
+{{FAILURE_LOGS}}
 
 CI Assistant conversation history:
 {{CONVERSATION_HISTORY}}`,
@@ -165,7 +165,7 @@ Developer's request (if any):
 {{USER_PROMPT}}
 
 CI failure context (if available):
-{{FAILURE_LOGS_IF_AVAILABLE}}
+{{FAILURE_LOGS}}
 
 Fix diff (if available):
 {{LATEST_FIX_DIFF}}
@@ -1030,7 +1030,7 @@ async function handleExplain(
 
   const prompt = renderPrompt(inputs.explainPrompt, {
     USER_PROMPT: parsed.userContext || "",
-    FAILURE_LOGS_IF_AVAILABLE: runContextRef,
+    FAILURE_LOGS: runContextRef,
     LATEST_FIX_DIFF: diffRef,
     CONVERSATION_HISTORY: historyRef,
     REPO: process.env.GITHUB_REPOSITORY || "",

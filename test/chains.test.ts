@@ -98,10 +98,9 @@ function inputs(ctx: StepContext, overrides: Record<string, string>): void {
     "auto-fix-prompt": "Fix: {{FAILURE_LOGS}}",
     "retry-prompt": "Retry: {{FAILURE_LOGS}} {{PREVIOUS_ATTEMPTS}}",
     "alternative-prompt": "Alt: {{FAILURE_LOGS}} {{PREVIOUS_SUGGESTIONS}}",
-    "suggest-prompt":
-      "Suggest: {{USER_CONTEXT}} {{FAILURE_LOGS_IF_AVAILABLE}} {{CONVERSATION_HISTORY}}",
+    "suggest-prompt": "Suggest: {{USER_CONTEXT}} {{FAILURE_LOGS}} {{CONVERSATION_HISTORY}}",
     "explain-prompt":
-      "Explain: {{USER_PROMPT}} {{FAILURE_LOGS_IF_AVAILABLE}} {{LATEST_FIX_DIFF}} {{CONVERSATION_HISTORY}}",
+      "Explain: {{USER_PROMPT}} {{FAILURE_LOGS}} {{LATEST_FIX_DIFF}} {{CONVERSATION_HISTORY}}",
     "confidence-prompt": "CONFIDENCE_PERCENT: ",
     ...overrides,
   }

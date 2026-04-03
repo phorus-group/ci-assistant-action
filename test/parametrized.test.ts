@@ -490,7 +490,7 @@ describe("Parametrized: Confidence parsing", () => {
   it.each(confidenceCases)(
     "output '%s' with diff=%s -> status=%s percent=%d",
     (output, diff, _hasDiff, expectedStatus, expectedPercent) => {
-      const result = parseConfidence(output, diff, 0)
+      const result = parseConfidence(output, diff)
       expect(result.status).toBe(expectedStatus)
       expect(result.percentage).toBe(expectedPercent)
     }

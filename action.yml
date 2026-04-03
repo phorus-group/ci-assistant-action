@@ -99,11 +99,11 @@ inputs:
     required: false
     default: ""
   auto-fix-prompt:
-    description: "Prompt template for automatic fix attempts. Placeholders: {{FAILURE_LOGS}}, {{REPO}}, {{BRANCH}}, {{SHA}}, {{CONVERSATION_HISTORY}}, {{REPRODUCTION_OUTPUT}}"
+    description: "Prompt template for automatic fix attempts. Placeholders: {{FAILURE_LOGS}}, {{REPO}}, {{BRANCH}}, {{SHA}}, {{PREVIOUS_SUGGESTIONS}}, {{USER_CONTEXT}}, {{CONVERSATION_HISTORY}}"
     required: false
     default: ""
   retry-prompt:
-    description: "Prompt template for retry attempts. Placeholders: {{FAILURE_LOGS}}, {{PREVIOUS_ATTEMPTS}}, {{REPRODUCTION_OUTPUT}}, {{REPO}}, {{BRANCH}}, {{SHA}}, {{CONVERSATION_HISTORY}}"
+    description: "Prompt template for retry attempts. Placeholders: {{FAILURE_LOGS}}, {{PREVIOUS_ATTEMPTS}}, {{REPRODUCTION_OUTPUT}}, {{PREVIOUS_SUGGESTIONS}}, {{USER_CONTEXT}}, {{CONVERSATION_HISTORY}}, {{REPO}}, {{BRANCH}}, {{SHA}}"
     required: false
     default: ""
   alternative-prompt:
@@ -111,15 +111,15 @@ inputs:
     required: false
     default: ""
   suggest-prompt:
-    description: "Prompt template for suggest commands. Placeholders: {{USER_CONTEXT}}, {{FAILURE_LOGS_IF_AVAILABLE}}, {{CONVERSATION_HISTORY}}, {{REPO}}, {{BRANCH}}, {{SHA}}"
+    description: "Prompt template for suggest commands. Placeholders: {{USER_CONTEXT}}, {{FAILURE_LOGS}}, {{CONVERSATION_HISTORY}}, {{REPO}}, {{BRANCH}}, {{SHA}}"
     required: false
     default: ""
   explain-prompt:
-    description: "Prompt template for explain commands. Placeholders: {{USER_PROMPT}}, {{FAILURE_LOGS_IF_AVAILABLE}}, {{LATEST_FIX_DIFF}}, {{CONVERSATION_HISTORY}}, {{REPO}}, {{BRANCH}}"
+    description: "Prompt template for explain commands. Placeholders: {{USER_PROMPT}}, {{FAILURE_LOGS}}, {{LATEST_FIX_DIFF}}, {{CONVERSATION_HISTORY}}, {{REPO}}, {{BRANCH}}"
     required: false
     default: ""
   confidence-prompt:
-    description: "Prompt appended to fix prompts for confidence analysis. Placeholders: {{FAILURE_LOGS}}, {{REPRODUCTION_OUTPUT}}, {{FIX_DIFF}}, {{POST_FIX_TEST_OUTPUT}}, {{PREVIOUS_SUGGESTIONS}}, {{USER_CONTEXT}}"
+    description: "Prompt appended to fix prompts for confidence analysis. No placeholder substitution (appended as-is)."
     required: false
     default: ""
   github-token:
