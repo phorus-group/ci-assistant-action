@@ -403,13 +403,32 @@ async function handleAutoFix(
     : "No failure logs available."
 
   // Determine the PR
-  let prNumber: number
+  let prNumber = 0
   let isNewCiAssistantPr = false
 
   if (inputs.failedPrNumber) {
-    prNumber = parseInt(inputs.failedPrNumber) || 0
-  } else {
-    // No PR: branch, release branch, or tag failure
+    const candidatePr = parseInt(inputs.failedPrNumber) || 0
+    if (candidatePr > 0) {
+      try {
+        const pr = await github.getPR(candidatePr)
+        if (pr.state === "open") {
+          prNumber = candidatePr
+          log(LogPrefix.CONTEXT, `Using open PR #${prNumber}`)
+        } else {
+          log(LogPrefix.CONTEXT, `PR #${candidatePr} is ${pr.state}, treating as branch failure`)
+          prNumber = 0
+        }
+      } catch {
+        log(LogPrefix.CONTEXT, `Could not fetch PR #${candidatePr}, treating as branch failure`)
+        prNumber = 0
+      }
+    } else {
+      prNumber = 0
+    }
+  }
+
+  // If no open PR found yet, check for existing ci-assistant PR
+  if (prNumber === 0) {
     const ciAssistantBranch = `ci-assistant/${inputs.failedBranch}`
     const existingPrs = await github.listPRs({
       head: ciAssistantBranch,
@@ -418,9 +437,10 @@ async function handleAutoFix(
 
     if (existingPrs.length > 0) {
       prNumber = existingPrs[0].number
+      log(LogPrefix.CONTEXT, `Found existing ci-assistant PR #${prNumber}`)
     } else {
       isNewCiAssistantPr = true
-      prNumber = 0
+      log(LogPrefix.CONTEXT, "No open PR found, will create ci-assistant PR if fix is found")
     }
   }
 

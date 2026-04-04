@@ -277,6 +277,41 @@ describe("Integration Tests", () => {
         fs.readFileSync(path.join(tmpDir, ".ci-assistant", "attempt-1-output.txt"), "utf-8")
       ).toContain("Attempt 1 output")
     })
+
+    it("treats closed/merged PR as branch failure and creates new ci-assistant PR", async () => {
+      // PR #42 exists but is closed (merged)
+      github.addPR({
+        number: 42,
+        state: "closed",
+        head: { ref: "ci-assistant/main", sha: "old-sha" },
+        base: { ref: "main" },
+      })
+
+      cleanupInputs()
+      cleanupInputs = setupDefaultInputs({
+        mode: "auto-fix",
+        "failed-pr-number": "42",
+        "failed-branch": "main",
+        "failed-sha": "new-sha",
+      })
+
+      claude = new MockClaudeRunner()
+      claude.addResult({
+        output:
+          "Fixed it.\nREPRODUCED: YES\nVERIFIED: YES\nCONFIDENCE_PERCENT: 90\nFIX_TITLE: Fix the thing\nFIX_DESCRIPTION: Fixed the thing.",
+        diff: "--- a/file.ts\n+++ b/file.ts\n-old\n+new",
+        filesChanged: ["file.ts"],
+      })
+
+      await run(github, slack, claude, git)
+
+      // Should have created a new ci-assistant PR, not posted on closed PR #42
+      const allPrs = Array.from(github.prs.values())
+      const newPr = allPrs.find(
+        (pr) => pr.head.ref === "ci-assistant/main" && pr.state === "open" && pr.number !== 42
+      )
+      expect(newPr).toBeDefined()
+    })
   })
 
   describe("Accept flow", () => {
