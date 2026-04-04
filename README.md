@@ -257,15 +257,17 @@ When a pipeline fails on a PR branch, the action downloads the failure logs, run
 
 1. The action installs Claude Code CLI via `npm install -g @anthropic-ai/claude-code`
 2. Auth is validated (OAuth token tested, API key as fallback)
-3. Failure logs are downloaded from the GitHub API (failed jobs only) and artifacts are fetched
-4. If the PR has a prior CI Assistant meta comment and the commit SHA changed since the last analysis, per-command limits and fix history are reset (the general total limit persists)
-5. Claude Code runs with the failure logs, reproducing the error, implementing a fix, and running tests
-6. If the first attempt does not produce a verified fix, the action retries with context about what previous attempts tried (see [Retry loop](#retry-loop-and-fix-selection))
-7. The best fix across all attempts is selected based on confidence ranking
-8. If a code fix was found, it is stored as an invisible git ref (`refs/ci-assistant/<pr>/<fix-id>`)
-9. A PR comment is posted with the diff, confidence score, and available commands
-10. Slack is updated (if configured)
-11. The meta comment is written/updated with the current state
+3. Full cleanup runs (close recovered ci-assistant PRs, delete stale branches, clean orphaned refs)
+4. If a PR number was provided, the action verifies the PR is still open. Closed or merged PRs are skipped and treated as branch failures instead.
+5. Failure logs are downloaded from the GitHub API (failed jobs only) and artifacts are fetched
+6. If the PR has a prior CI Assistant meta comment and the commit SHA changed since the last analysis, per-command limits and fix history are reset (the general total limit persists)
+7. Claude Code runs with the failure logs, reproducing the error, implementing a fix, and running tests
+8. If the first attempt does not produce a verified fix, the action retries with context about what previous attempts tried (see [Retry loop](#retry-loop-and-fix-selection))
+9. The best fix across all attempts is selected based on confidence ranking
+10. If a code fix was found, it is stored as an invisible git ref (`refs/ci-assistant/<pr>/<fix-id>`)
+11. A PR comment is posted with the diff, confidence score, and available commands
+12. Slack is updated (if configured)
+13. The meta comment is written/updated with the current state
 
 </details>
 
@@ -277,11 +279,11 @@ When a branch like `main` or `release/1.0` fails and has no open PR, the action 
 <summary>Detailed flow</summary>
 
 1. Same analysis as the PR failure flow above
-2. If Claude produces a **code fix**: the action creates a `ci-assistant/<branch>` branch from the failing commit SHA, commits the fix directly, pushes, and opens a PR targeting the failed branch. The suggestion comment notes that the fix is already on the branch and merging the PR applies it.
+2. If Claude produces a **code fix**: any existing `ci-assistant/<branch>` branch (local or remote) is deleted first, then a new branch is created from the failing commit SHA, the fix is committed directly, pushed, and a PR is opened targeting the failed branch. The suggestion comment notes that the fix is already on the branch and merging the PR applies it.
 3. If the same branch fails again later (existing `ci-assistant/` PR): subsequent fixes are posted as comments on the existing PR, stored as refs, and require `/ci-assistant accept` to apply.
 4. If Claude **cannot produce a code fix** (non-code issue or gave up): no PR is created. A branch with no code changes serves no purpose. The analysis is reported via Slack only.
 
-When the base branch pipeline recovers, the scheduled cleanup closes the `ci-assistant/` PR, deletes the branch, and cleans up all fix refs for that PR.
+When the base branch pipeline recovers, cleanup closes the `ci-assistant/` PR, deletes the branch, and cleans up all fix refs for that PR.
 
 </details>
 
@@ -321,14 +323,10 @@ This is useful for re-analyzing failures after the `workflow_run` event has alre
 
 ### Cleanup
 
-Cleanup runs in two ways: orphaned ref cleanup runs at the start of every CI Assistant invocation, and full cleanup runs on a weekly schedule.
+Full cleanup runs at the start of every CI Assistant invocation (auto-fix, command, manual) and also via the weekly `schedule` trigger. Both do the same thing.
 
 <details>
 <summary>Detailed flow</summary>
-
-**Per-invocation (automatic):** orphaned refs are cleaned at the start of every auto-fix, command, or manual run. This removes refs for PRs that have been closed or merged.
-
-**Scheduled (weekly):** full cleanup runs via the `schedule` trigger. This handles:
 
 1. **Closes stale `ci-assistant/` PRs**: finds open PRs with head branch `ci-assistant/<branch>` and checks if the base branch pipeline is now passing. For each recovered branch: posts a closing comment, closes the PR, deletes the `ci-assistant/<branch>` branch (via `refs/heads/`), and deletes all fix refs (`refs/ci-assistant/<pr>/`). Updates Slack if a prior message exists.
 2. **Cleans up orphaned refs**: scans all `refs/ci-assistant/<pr>/` refs, checks whether each PR is closed or merged, and deletes refs for closed PRs.
@@ -347,7 +345,7 @@ Each auto-fix or command-triggered fix runs up to `max-retries` attempts (defaul
 <summary>Detailed flow</summary>
 
 1. **First attempt**: uses `autoFixPrompt` (or the command-specific prompt for suggest/alternative) with failure logs, repo, branch, and SHA context
-2. **Working directory reset**: before each subsequent attempt, `git checkout -- .` and `git clean -fd` restore a clean state
+2. **Working directory reset**: before each subsequent attempt, `git reset --hard` to the original HEAD SHA (captured before the first attempt) and `git clean -fd` restore a clean state, including undoing any commits Claude may have made
 3. **Subsequent attempts**: use `retryPrompt` which includes what each previous attempt tried and why it still failed
 4. **Confidence prompt**: appended to every attempt, asking Claude to output `REPRODUCED`, `VERIFIED`, and `CONFIDENCE_PERCENT` markers
 5. **Early exit**: the loop stops immediately if an attempt achieves `REPRODUCED_AND_VERIFIED`, or `NOT_REPRODUCED_TESTS_PASS` with ≥70% confidence
@@ -578,6 +576,8 @@ All prompt inputs use `{{PLACEHOLDER}}` syntax. The action replaces each `{{KEY}
 | `summary-prompt` | Appended to all fix prompts (after confidence) | Ask Claude to output `FIX_TITLE`, `FIX_DESCRIPTION`, and `FIX_ERROR` markers for PR titles, comments, and commit messages |
 
 ### Built-in defaults
+
+In addition to the task prompts below, a system prompt is always appended via `--append-system-prompt`. It tells Claude it is running in a GitHub Actions runner, provides efficiency guidelines (prefer grep over reading full files, do not re-read files, go straight to implementing the fix), and includes a safety instruction: Claude must not run `git push`, `git commit`, `git checkout -b`, or interact with the remote repository. All git operations are handled by the action after Claude finishes.
 
 **auto-fix-prompt**:
 ```
