@@ -197,6 +197,7 @@ FIX_TITLE: <concise one-line title describing the fix, max 70 characters>
 FIX_DESCRIPTION: <2-3 sentence description of what was changed and why>
 FIX_ERROR: <brief description of what failed and why, 1-2 sentences>`,
     githubToken: core.getInput("github-token") || "",
+    appSlug: core.getInput("app-slug") || "",
     claudeCodeOauthToken: core.getInput("claude-code-oauth-token") || "",
     anthropicApiKey: core.getInput("anthropic-api-key") || "",
     commentBody: core.getInput("comment-body") || "",
@@ -226,7 +227,7 @@ export async function run(
 
     // Configure git identity so commits (createBranchAndPushFix, createFixRef)
     // don't fail on runners without a default identity.
-    const botUser = await github.getAuthenticatedUser()
+    const botUser = await github.getAuthenticatedUser(inputs.appSlug)
     const botEmail = botUser.endsWith("[bot]")
       ? `${botUser.replace("[bot]", "")}[bot]@users.noreply.github.com`
       : `${botUser}@users.noreply.github.com`
@@ -272,7 +273,7 @@ async function runFullCleanup(
 ): Promise<void> {
   log(LogPrefix.CLEANUP, "Running cleanup...")
 
-  const botUser = await github.getAuthenticatedUser()
+  const botUser = await github.getAuthenticatedUser(inputs.appSlug)
 
   // Scan all open ci-assistant PRs
   const allOpenPrs = await github.listPRs({ state: "open" })
@@ -445,7 +446,7 @@ async function handleAutoFix(
   }
 
   // Read meta (if PR exists)
-  const botUser = await github.getAuthenticatedUser()
+  const botUser = await github.getAuthenticatedUser(inputs.appSlug)
   let meta: MetaComment
   let metaCommentId: number | null = null
 
@@ -834,7 +835,7 @@ async function handleCommand(
   )
 
   // Get bot identity
-  const botUser = await github.getAuthenticatedUser()
+  const botUser = await github.getAuthenticatedUser(inputs.appSlug)
 
   // Read meta
   const { meta, commentId: metaCommentId } = await readMeta(github, prNumber, botUser)

@@ -35,7 +35,7 @@ export interface GitHubClient {
   listRunArtifacts(runId: number): Promise<ArtifactInfo[]>
   downloadArtifact(artifactId: number): Promise<Buffer>
   getRunInfo(runId: number): Promise<RunInfo>
-  getAuthenticatedUser(): Promise<string>
+  getAuthenticatedUser(appSlug?: string): Promise<string>
   listRefs(prefix: string): Promise<string[]>
   deleteRef(ref: string): Promise<void>
   isTag(ref: string): Promise<boolean>
@@ -317,8 +317,15 @@ export class OctokitGitHubClient implements GitHubClient {
     }
   }
 
-  async getAuthenticatedUser(): Promise<string> {
-    // Try user token first (OAuth/PAT)
+  async getAuthenticatedUser(appSlug?: string): Promise<string> {
+    // Use app-slug input if provided (from actions/create-github-app-token output)
+    if (appSlug) {
+      const botLogin = `${appSlug}[bot]`
+      log(LogPrefix.AUTH, `Using provided app-slug: ${botLogin}`)
+      return botLogin
+    }
+
+    // Try user token (OAuth/PAT)
     try {
       const { data } = await this.octokit.rest.users.getAuthenticated()
       log(LogPrefix.AUTH, `Authenticated as user: ${data.login}`)
@@ -330,9 +337,9 @@ export class OctokitGitHubClient implements GitHubClient {
     // Try GitHub App installation token via /installation endpoint
     try {
       const response = await this.octokit.request("GET /installation")
-      const appSlug = response.data?.app_slug
-      if (appSlug) {
-        const botLogin = `${appSlug}[bot]`
+      const slug = response.data?.app_slug
+      if (slug) {
+        const botLogin = `${slug}[bot]`
         log(LogPrefix.AUTH, `Authenticated as GitHub App: ${botLogin}`)
         return botLogin
       }

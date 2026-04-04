@@ -136,6 +136,7 @@ export interface ActionInputs {
   confidencePrompt: string
   summaryPrompt: string
   githubToken: string
+  appSlug: string
   claudeCodeOauthToken: string
   anthropicApiKey: string
   commentBody: string

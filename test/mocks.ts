@@ -142,7 +142,8 @@ export class MockGitHubClient implements GitHubClient {
     return info
   }
 
-  async getAuthenticatedUser(): Promise<string> {
+  async getAuthenticatedUser(appSlug?: string): Promise<string> {
+    if (appSlug) return `${appSlug}[bot]`
     return this.authenticatedUser
   }
 

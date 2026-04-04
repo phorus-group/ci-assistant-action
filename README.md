@@ -206,6 +206,7 @@ By default, comments and commits appear as `github-actions[bot]`. For a custom i
 - uses: phorus-group/ci-assistant-action@v1
   with:
     github-token: ${{ steps.app-token.outputs.token }}
+    app-slug: ${{ steps.app-token.outputs.app-slug }}
 ```
 
 GitHub Apps are free (no seat cost). The app identity shows on all comments and commits, and the meta comment integrity check uses this identity to verify ownership.
@@ -715,6 +716,7 @@ The "Used by" column shows which default templates reference each placeholder. A
 | `confidence-prompt` | (built-in) | Prompt appended to all fix prompts for confidence analysis |
 | `summary-prompt` | (built-in) | Prompt appended to all fix prompts for fix summary generation (title, description, error) |
 | `github-token` | `""` | GitHub token for API calls. Falls back to `GITHUB_TOKEN`. Only needed for GitHub App custom identity. |
+| `app-slug` | `""` | GitHub App slug (from `actions/create-github-app-token` output). Used to determine the bot identity for meta comment matching. If empty, falls back to API detection. |
 | `claude-code-oauth-token` | `""` | Claude Code OAuth token (from `claude setup-token`, uses subscription quota) |
 | `anthropic-api-key` | `""` | Anthropic API key (pay-per-use fallback) |
 | `comment-body` | `""` | The PR comment text (command mode) |

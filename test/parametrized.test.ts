@@ -61,6 +61,7 @@ const defaultInputs: ActionInputs = {
   confidencePrompt: "",
   summaryPrompt: "",
   githubToken: "",
+  appSlug: "",
   claudeCodeOauthToken: "",
   anthropicApiKey: "",
   commentBody: "",

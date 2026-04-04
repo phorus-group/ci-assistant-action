@@ -130,6 +130,10 @@ inputs:
     description: "GitHub token for API calls (supports default github.token or GitHub App tokens)"
     required: false
     default: ""
+  app-slug:
+    description: "GitHub App slug (from actions/create-github-app-token output). Used to determine the bot identity. If empty, falls back to API detection."
+    required: false
+    default: ""
   claude-code-oauth-token:
     description: "Claude Code OAuth token (from claude setup-token, uses subscription quota)"
     required: false
