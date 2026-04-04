@@ -327,7 +327,20 @@ export class OctokitGitHubClient implements GitHubClient {
       // users.getAuthenticated fails for GitHub App installation tokens
     }
 
-    // Try GitHub App installation token
+    // Try GitHub App installation token via /installation endpoint
+    try {
+      const response = await this.octokit.request("GET /installation")
+      const appSlug = response.data?.app_slug
+      if (appSlug) {
+        const botLogin = `${appSlug}[bot]`
+        log(LogPrefix.AUTH, `Authenticated as GitHub App: ${botLogin}`)
+        return botLogin
+      }
+    } catch {
+      // /installation endpoint also failed
+    }
+
+    // Try GitHub App JWT auth
     try {
       const { data } = await this.octokit.rest.apps.getAuthenticated()
       const botLogin = `${data.slug}[bot]`

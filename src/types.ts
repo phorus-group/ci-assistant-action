@@ -143,6 +143,7 @@ export interface ActionInputs {
 
 export interface SlackBlock {
   type: string
+  block_id?: string
   text?: { type: string; text: string }
   elements?: unknown[]
 }

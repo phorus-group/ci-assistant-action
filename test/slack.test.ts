@@ -203,6 +203,7 @@ describe("updateParentFailureStatus", () => {
     const updatedBlocks = slack.updates[0].blocks
     expect(updatedBlocks.length).toBe(3)
     expect(updatedBlocks[2].type).toBe("context")
+    expect(updatedBlocks[2].block_id).toBe("ci-assistant-status")
     const contextText = (updatedBlocks[2].elements as { text: string }[])[0].text
     expect(contextText).toContain("CI Assistant:")
     expect(contextText).toContain("Analyzing failure...")
@@ -232,6 +233,11 @@ describe("updateParentFailureStatus", () => {
     const blocks = lastUpdate.blocks
     // Should still have 3 blocks (section + original context + ci-assistant context), not 4
     expect(blocks.length).toBe(3)
+    // Original pipeline context block preserved (no block_id)
+    expect(blocks[1].type).toBe("context")
+    expect(blocks[1].block_id).toBeUndefined()
+    // ci-assistant block replaced (same block_id, new content)
+    expect(blocks[2].block_id).toBe("ci-assistant-status")
     const contextText = (blocks[2].elements as { text: string }[])[0].text
     expect(contextText).toContain("Fix suggested")
     expect(contextText).toContain("View PR")

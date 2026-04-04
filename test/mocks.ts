@@ -206,10 +206,11 @@ export class MockSlackClient implements SlackClient {
   }
 
   async getMessageBlocks(_channel: string, ts: string): Promise<SlackBlock[] | null> {
+    // Return the latest state: check updates (newest first), then original messages
+    const latestUpdate = [...this.updates].reverse().find((u) => u.ts === ts)
+    if (latestUpdate) return latestUpdate.blocks
     const msg = this.messages.find((m) => m.ts === ts)
-    if (msg) return msg.blocks
-    const update = this.updates.find((u) => u.ts === ts)
-    return update?.blocks ?? null
+    return msg?.blocks ?? null
   }
 
   getLastMessage() {

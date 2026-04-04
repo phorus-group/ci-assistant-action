@@ -343,16 +343,9 @@ export async function updateParentFailureStatus(
 
   log(LogPrefix.SLACK, `Parent message has ${blocks.length} blocks`)
 
-  // Remove any existing ci-assistant context block
-  const filtered = blocks.filter(
-    (b) =>
-      !(
-        b.type === "context" &&
-        (b.elements as { type: string; text?: string }[] | undefined)?.some(
-          (e) => e.type === "mrkdwn" && e.text?.startsWith(CI_ASSISTANT_BLOCK_MARKER)
-        )
-      )
-  )
+  // Remove any existing ci-assistant context block (identified by block_id)
+  const CI_ASSISTANT_BLOCK_ID = "ci-assistant-status"
+  const filtered = blocks.filter((b) => b.block_id !== CI_ASSISTANT_BLOCK_ID)
 
   log(
     LogPrefix.SLACK,
@@ -368,6 +361,7 @@ export async function updateParentFailureStatus(
   // Append new ci-assistant context block
   filtered.push({
     type: "context",
+    block_id: CI_ASSISTANT_BLOCK_ID,
     elements: [{ type: "mrkdwn", text: statusText }],
   })
 
