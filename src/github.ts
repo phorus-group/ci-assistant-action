@@ -778,6 +778,8 @@ export async function cleanupOrphanedRefs(client: GitHubClient): Promise<number>
     }
   }
 
+  log(LogPrefix.CLEANUP, `Found ${refs.length} ci-assistant refs across ${prNumbers.size} PRs`)
+
   for (const prNumber of prNumbers) {
     try {
       const pr = await client.getPR(prNumber)

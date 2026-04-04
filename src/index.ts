@@ -239,12 +239,11 @@ export async function run(
       ignoreReturnCode: true,
     })
 
-    // Clean orphaned refs at the start of every invocation.
-    // Full cleanup (closing stale PRs, resetting state) only runs in dedicated
-    // cleanup mode since it requires the pipeline to have passed.
+    // Run full cleanup at the start of every invocation (close recovered ci-assistant
+    // PRs, delete stale branches, clean orphaned refs). Skipped in cleanup mode
+    // since handleCleanup runs the same logic.
     if (inputs.mode !== Mode.CLEANUP) {
-      const cleaned = await cleanupOrphanedRefs(github)
-      if (cleaned > 0) log(LogPrefix.CLEANUP, `Cleaned up ${cleaned} orphaned refs`)
+      await runFullCleanup(github, slack, inputs)
     }
 
     switch (inputs.mode) {
@@ -266,7 +265,7 @@ export async function run(
   }
 }
 
-async function handleCleanup(
+async function runFullCleanup(
   github: GitHubClient,
   slack: SlackClient | null,
   inputs: ActionInputs
@@ -275,33 +274,27 @@ async function handleCleanup(
 
   const botUser = await github.getAuthenticatedUser()
 
-  // Determine which ci-assistant branches to check.
-  // When failedBranch is set (workflow_run trigger), only check that branch.
-  // When empty (schedule trigger), scan all open ci-assistant PRs.
+  // Scan all open ci-assistant PRs
+  const allOpenPrs = await github.listPRs({ state: "open" })
   const ciAssistantPrs: { pr: PR; baseBranch: string }[] = []
-
-  if (inputs.failedBranch) {
-    const ciAssistantBranch = `ci-assistant/${inputs.failedBranch}`
-    const prs = await github.listPRs({ head: ciAssistantBranch, state: "open" })
-    for (const pr of prs) {
-      ciAssistantPrs.push({ pr, baseBranch: inputs.failedBranch })
-    }
-  } else {
-    const allOpenPrs = await github.listPRs({ state: "open" })
-    for (const pr of allOpenPrs) {
-      if (pr.head.ref.startsWith("ci-assistant/")) {
-        ciAssistantPrs.push({ pr, baseBranch: pr.base.ref })
-      }
+  for (const pr of allOpenPrs) {
+    if (pr.head.ref.startsWith("ci-assistant/")) {
+      ciAssistantPrs.push({ pr, baseBranch: pr.base.ref })
     }
   }
 
+  log(LogPrefix.CLEANUP, `Found ${ciAssistantPrs.length} open ci-assistant PRs to check`)
+
   // Close ci-assistant PRs whose base branch pipeline now passes
   for (const { pr, baseBranch } of ciAssistantPrs) {
-    const shouldClose = inputs.failedBranch
-      ? true
-      : (await github.getBranchLatestConclusion(baseBranch)) === "success"
-
-    if (!shouldClose) continue
+    const conclusion = await github.getBranchLatestConclusion(baseBranch)
+    if (conclusion !== "success") {
+      log(
+        LogPrefix.CLEANUP,
+        `ci-assistant PR #${pr.number} for ${baseBranch}: pipeline still failing, skipping`
+      )
+      continue
+    }
 
     log(
       LogPrefix.CLEANUP,
@@ -329,7 +322,7 @@ async function handleCleanup(
       }
     }
     if (prRefs.length > 0) {
-      log(LogPrefix.CLEANUP, `Deleted ${prRefs.length} fix refs for PR #${pr.number}`)
+      log(LogPrefix.CLEANUP, `Deleted ${prRefs.length} fix refs for ci-assistant PR #${pr.number}`)
     }
 
     if (slack && inputs.slackFailureChannel) {
@@ -347,9 +340,17 @@ async function handleCleanup(
     }
   }
 
-  // Clean up orphaned refs
+  // Clean up orphaned refs (for closed/merged PRs that still have refs)
   const cleaned = await cleanupOrphanedRefs(github)
   log(LogPrefix.CLEANUP, `Cleaned up ${cleaned} orphaned refs`)
+}
+
+async function handleCleanup(
+  github: GitHubClient,
+  slack: SlackClient | null,
+  inputs: ActionInputs
+): Promise<void> {
+  await runFullCleanup(github, slack, inputs)
 }
 
 async function handleAutoFix(

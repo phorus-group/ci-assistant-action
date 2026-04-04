@@ -1162,6 +1162,7 @@ describe("Integration Tests", () => {
         head: { ref: "ci-assistant/main", sha: "fix-sha" },
         base: { ref: "main" },
       })
+      github.branchConclusions.set("main", "success")
 
       const meta = {
         ...DEFAULT_META,
@@ -1174,7 +1175,6 @@ describe("Integration Tests", () => {
       cleanupInputs()
       cleanupInputs = setupDefaultInputs({
         mode: "cleanup",
-        "failed-branch": "main",
       })
 
       await run(github, slack, claude, git)
@@ -2203,6 +2203,7 @@ describe("Integration Tests", () => {
         head: { ref: "ci-assistant/main", sha: "fix-sha" },
         base: { ref: "main" },
       })
+      github.branchConclusions.set("main", "success")
 
       const meta = {
         ...DEFAULT_META,
@@ -2219,7 +2220,6 @@ describe("Integration Tests", () => {
       cleanupInputs()
       cleanupInputs = setupDefaultInputs({
         mode: "cleanup",
-        "failed-branch": "main",
       })
 
       await run(github, slack, claude, git)
@@ -2708,6 +2708,7 @@ describe("Integration Tests", () => {
         head: { ref: "ci-assistant/develop", sha: "fix-sha" },
         base: { ref: "develop" },
       })
+      github.branchConclusions.set("develop", "success")
 
       const meta = {
         ...DEFAULT_META,
@@ -2722,7 +2723,6 @@ describe("Integration Tests", () => {
       cleanupInputs()
       cleanupInputs = setupDefaultInputs({
         mode: "cleanup",
-        "failed-branch": "develop",
       })
 
       await run(github, slack, claude, git)
