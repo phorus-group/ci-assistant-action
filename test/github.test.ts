@@ -431,9 +431,11 @@ describe("createBranchAndPushFix", () => {
 
 describe("acceptFixFromRef", () => {
   const mockExec = exec.exec as jest.Mock
+  const mockGetExecOutput = exec.getExecOutput as jest.Mock
 
   beforeEach(() => {
     mockExec.mockResolvedValue(0)
+    mockGetExecOutput.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" })
   })
 
   afterEach(() => {
@@ -441,54 +443,99 @@ describe("acceptFixFromRef", () => {
   })
 
   it("pushes explicitly to the target branch", async () => {
-    const execCalls: string[][] = []
-    mockExec.mockImplementation((_cmd: string, args: string[]) => {
-      execCalls.push(args)
-      return 0
+    const calls: string[][] = []
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
+      calls.push(args)
+      return { exitCode: 0, stdout: "", stderr: "" }
     })
 
     const result = await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
 
     expect(result.success).toBe(true)
-    const pushCall = execCalls.find((a) => a[0] === "push")
-    expect(pushCall).toBeDefined()
+    const pushCall = calls.find((a) => a[0] === "push")
     expect(pushCall).toEqual(["push", "origin", "HEAD:refs/heads/feature-branch"])
   })
 
   it("fetches the correct ref and cherry-picks", async () => {
-    const execCalls: string[][] = []
-    mockExec.mockImplementation((_cmd: string, args: string[]) => {
-      execCalls.push(args)
-      return 0
+    const calls: string[][] = []
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
+      calls.push(args)
+      return { exitCode: 0, stdout: "", stderr: "" }
     })
 
     await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
 
-    const fetchCall = execCalls.find((a) => a[0] === "fetch")
+    const fetchCall = calls.find((a) => a[0] === "fetch")
     expect(fetchCall).toEqual(["fetch", "origin", "refs/ci-assistant/42/#fix-abc123"])
 
-    const cherryPickCall = execCalls.find((a) => a[0] === "cherry-pick" && a[1] === "FETCH_HEAD")
+    const cherryPickCall = calls.find((a) => a[0] === "cherry-pick" && a[1] === "FETCH_HEAD")
     expect(cherryPickCall).toBeDefined()
   })
 
-  it("aborts cherry-pick and returns error on failure", async () => {
-    const execCalls: string[][] = []
-    mockExec.mockImplementation((_cmd: string, args: string[]) => {
-      execCalls.push(args)
-      // Fail on cherry-pick
+  it("returns conflict error when cherry-pick has conflicts", async () => {
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
       if (args[0] === "cherry-pick" && args[1] === "FETCH_HEAD") {
-        throw new Error("conflict")
+        return {
+          exitCode: 1,
+          stdout: "CONFLICT (content): Merge conflict in package.json",
+          stderr: "",
+        }
       }
-      return 0
+      return { exitCode: 0, stdout: "", stderr: "" }
     })
 
     const result = await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
 
     expect(result.success).toBe(false)
-    expect(result.error).toContain("Cherry-pick failed")
+    expect(result.error).toContain("conflicts")
+    expect(result.error).toContain("diverged")
     expect(result.error).toContain("refs/ci-assistant/42/#fix-abc123")
+  })
 
-    const abortCall = execCalls.find((a) => a[0] === "cherry-pick" && a[1] === "--abort")
+  it("aborts cherry-pick on failure", async () => {
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "cherry-pick" && args[1] === "FETCH_HEAD") {
+        return { exitCode: 1, stdout: "", stderr: "error" }
+      }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    })
+
+    await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
+
+    const abortCall = mockExec.mock.calls.find(
+      (c: string[][]) => c[1]?.[0] === "cherry-pick" && c[1]?.[1] === "--abort"
+    )
     expect(abortCall).toBeDefined()
+  })
+
+  it("returns fetch error when ref is missing", async () => {
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "fetch") {
+        return { exitCode: 128, stdout: "", stderr: "fatal: couldn't find remote ref" }
+      }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    })
+
+    const result = await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("Could not fetch")
+    expect(result.error).toContain("cleaned up")
+  })
+
+  it("returns push error when push fails after successful cherry-pick", async () => {
+    mockGetExecOutput.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "push") {
+        return { exitCode: 1, stdout: "", stderr: "rejected" }
+      }
+      return { exitCode: 0, stdout: "", stderr: "" }
+    })
+
+    const result = await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("Cherry-pick succeeded")
+    expect(result.error).toContain("push")
+    expect(result.error).toContain("feature-branch")
   })
 })

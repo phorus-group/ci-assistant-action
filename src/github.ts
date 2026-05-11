@@ -772,31 +772,65 @@ export async function acceptFixFromRef(
 
   log(LogPrefix.GIT, `Accepting fix ${fixId} for PR #${prNumber}, target branch: ${targetBranch}`)
 
-  try {
-    log(LogPrefix.GIT, `Fetching ref ${ref}`)
-    await exec.exec("git", ["fetch", "origin", ref], { silent: true })
+  const manualSteps = `\`\`\`\ngit fetch origin ${ref}\ngit cherry-pick FETCH_HEAD\n\`\`\``
 
-    log(LogPrefix.GIT, `Cherry-picking FETCH_HEAD`)
-    await exec.exec("git", ["cherry-pick", "FETCH_HEAD"], { silent: true })
+  log(LogPrefix.GIT, `Fetching ref ${ref}`)
+  const fetch = await exec.getExecOutput("git", ["fetch", "origin", ref], {
+    silent: true,
+    ignoreReturnCode: true,
+  })
+  if (fetch.exitCode !== 0) {
+    logError(LogPrefix.GIT, `Fetch failed (exit ${fetch.exitCode}): ${fetch.stderr.trim()}`)
+    return {
+      success: false,
+      error: `Could not fetch fix ref \`${fixId}\`. It may have been cleaned up.\n\n${manualSteps}`,
+    }
+  }
 
-    log(LogPrefix.GIT, `Pushing to origin HEAD:refs/heads/${targetBranch}`)
-    await exec.exec("git", ["push", "origin", `HEAD:refs/heads/${targetBranch}`], { silent: true })
-
-    log(LogPrefix.GIT, `Fix ${fixId} accepted and pushed to ${targetBranch}`)
-    return { success: true }
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err)
-    logError(LogPrefix.GIT, `Accept failed for ${fixId}: ${errorMsg}`)
-
+  log(LogPrefix.GIT, `Cherry-picking FETCH_HEAD`)
+  const cherryPick = await exec.getExecOutput("git", ["cherry-pick", "FETCH_HEAD"], {
+    silent: true,
+    ignoreReturnCode: true,
+  })
+  if (cherryPick.exitCode !== 0) {
+    logError(
+      LogPrefix.GIT,
+      `Cherry-pick failed (exit ${cherryPick.exitCode}): ${cherryPick.stderr.trim()}`
+    )
     await exec.exec("git", ["cherry-pick", "--abort"], {
       silent: true,
       ignoreReturnCode: true,
     })
+    const isConflict =
+      cherryPick.stdout.includes("CONFLICT") || cherryPick.stderr.includes("CONFLICT")
+    const reason = isConflict
+      ? "Cherry-pick has conflicts. The branch has diverged from when the fix was created."
+      : `Cherry-pick failed (exit ${cherryPick.exitCode}).`
     return {
       success: false,
-      error: `Cherry-pick failed. The branch may have moved forward since the fix was suggested. Please resolve manually.\n\nYou can fetch the fix with:\n\`\`\`\ngit fetch origin ${ref}\ngit cherry-pick FETCH_HEAD\n\`\`\``,
+      error: `${reason} Please resolve manually.\n\n${manualSteps}`,
     }
   }
+
+  log(LogPrefix.GIT, `Pushing to origin HEAD:refs/heads/${targetBranch}`)
+  const push = await exec.getExecOutput(
+    "git",
+    ["push", "origin", `HEAD:refs/heads/${targetBranch}`],
+    {
+      silent: true,
+      ignoreReturnCode: true,
+    }
+  )
+  if (push.exitCode !== 0) {
+    logError(LogPrefix.GIT, `Push failed (exit ${push.exitCode}): ${push.stderr.trim()}`)
+    return {
+      success: false,
+      error: `Cherry-pick succeeded but push to \`${targetBranch}\` failed. The branch may have been updated since the accept started.\n\n${manualSteps}`,
+    }
+  }
+
+  log(LogPrefix.GIT, `Fix ${fixId} accepted and pushed to ${targetBranch}`)
+  return { success: true }
 }
 
 export async function cleanupOrphanedRefs(client: GitHubClient): Promise<number> {
