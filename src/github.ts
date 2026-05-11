@@ -765,14 +765,16 @@ export async function createFixRef(prNumber: number, fixId: string): Promise<voi
 
 export async function acceptFixFromRef(
   prNumber: number,
-  fixId: string
+  fixId: string,
+  targetBranch: string
 ): Promise<{ success: boolean; error?: string }> {
   const ref = `refs/ci-assistant/${prNumber}/${fixId}`
 
   try {
     await exec.exec("git", ["fetch", "origin", ref], { silent: true })
     await exec.exec("git", ["cherry-pick", "FETCH_HEAD"], { silent: true })
-    await exec.exec("git", ["push"], { silent: true })
+    // Push explicitly to the PR branch (HEAD may be detached in command mode)
+    await exec.exec("git", ["push", "origin", `HEAD:refs/heads/${targetBranch}`], { silent: true })
     return { success: true }
   } catch {
     await exec.exec("git", ["cherry-pick", "--abort"], {

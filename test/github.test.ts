@@ -12,6 +12,7 @@ import {
   formatGaveUpComment,
   cleanupOrphanedRefs,
   createBranchAndPushFix,
+  acceptFixFromRef,
 } from "../src/github"
 import { MockGitHubClient } from "./mocks"
 import { DEFAULT_META, State, META_MARKER, SUGGESTION_HEADER, ConfidenceStatus } from "../src/types"
@@ -425,5 +426,69 @@ describe("createBranchAndPushFix", () => {
       (a) => (a[0] === "branch" && a[1] === "-D") || (a[1] === "origin" && a[2] === "--delete")
     )
     expect(deleteCalls.length).toBe(0)
+  })
+})
+
+describe("acceptFixFromRef", () => {
+  const mockExec = exec.exec as jest.Mock
+
+  beforeEach(() => {
+    mockExec.mockResolvedValue(0)
+  })
+
+  afterEach(() => {
+    jest.resetAllMocks()
+  })
+
+  it("pushes explicitly to the target branch", async () => {
+    const execCalls: string[][] = []
+    mockExec.mockImplementation((_cmd: string, args: string[]) => {
+      execCalls.push(args)
+      return 0
+    })
+
+    const result = await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
+
+    expect(result.success).toBe(true)
+    const pushCall = execCalls.find((a) => a[0] === "push")
+    expect(pushCall).toBeDefined()
+    expect(pushCall).toEqual(["push", "origin", "HEAD:refs/heads/feature-branch"])
+  })
+
+  it("fetches the correct ref and cherry-picks", async () => {
+    const execCalls: string[][] = []
+    mockExec.mockImplementation((_cmd: string, args: string[]) => {
+      execCalls.push(args)
+      return 0
+    })
+
+    await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
+
+    const fetchCall = execCalls.find((a) => a[0] === "fetch")
+    expect(fetchCall).toEqual(["fetch", "origin", "refs/ci-assistant/42/#fix-abc123"])
+
+    const cherryPickCall = execCalls.find((a) => a[0] === "cherry-pick" && a[1] === "FETCH_HEAD")
+    expect(cherryPickCall).toBeDefined()
+  })
+
+  it("aborts cherry-pick and returns error on failure", async () => {
+    const execCalls: string[][] = []
+    mockExec.mockImplementation((_cmd: string, args: string[]) => {
+      execCalls.push(args)
+      // Fail on cherry-pick
+      if (args[0] === "cherry-pick" && args[1] === "FETCH_HEAD") {
+        throw new Error("conflict")
+      }
+      return 0
+    })
+
+    const result = await acceptFixFromRef(42, "#fix-abc123", "feature-branch")
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain("Cherry-pick failed")
+    expect(result.error).toContain("refs/ci-assistant/42/#fix-abc123")
+
+    const abortCall = execCalls.find((a) => a[0] === "cherry-pick" && a[1] === "--abort")
+    expect(abortCall).toBeDefined()
   })
 })

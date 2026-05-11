@@ -1035,7 +1035,7 @@ async function handleAccept(
     return
   }
 
-  const result = await acceptFixFromRef(prNumber, fixId)
+  const result = await acceptFixFromRef(prNumber, fixId, inputs.failedBranch)
 
   if (result.success) {
     await github.createComment(
