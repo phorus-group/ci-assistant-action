@@ -490,6 +490,8 @@ describe("acceptFixFromRef", () => {
     expect(result.error).toContain("conflicts")
     expect(result.error).toContain("diverged")
     expect(result.error).toContain("refs/ci-assistant/42/#fix-abc123")
+    expect(result.error).toContain("/ci-assistant suggest")
+    expect(result.error).toContain("/ci-assistant alternative")
   })
 
   it("aborts cherry-pick on failure", async () => {
@@ -521,6 +523,7 @@ describe("acceptFixFromRef", () => {
     expect(result.success).toBe(false)
     expect(result.error).toContain("Could not fetch")
     expect(result.error).toContain("cleaned up")
+    expect(result.error).toContain("/ci-assistant suggest")
   })
 
   it("returns push error when push fails after successful cherry-pick", async () => {

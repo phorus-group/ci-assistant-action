@@ -783,7 +783,7 @@ export async function acceptFixFromRef(
     logError(LogPrefix.GIT, `Fetch failed (exit ${fetch.exitCode}): ${fetch.stderr.trim()}`)
     return {
       success: false,
-      error: `Could not fetch fix ref \`${fixId}\`. It may have been cleaned up.\n\n${manualSteps}`,
+      error: `Could not fetch fix ref \`${fixId}\`. It may have been cleaned up.\n\nUse \`/ci-assistant suggest\` or \`/ci-assistant alternative\` to generate a new fix based on the current branch state.`,
     }
   }
 
@@ -808,7 +808,7 @@ export async function acceptFixFromRef(
       : `Cherry-pick failed (exit ${cherryPick.exitCode}).`
     return {
       success: false,
-      error: `${reason} Please resolve manually.\n\n${manualSteps}`,
+      error: `${reason} Please resolve manually.\n\n${manualSteps}\n\nAlternatively, use \`/ci-assistant suggest\` or \`/ci-assistant alternative\` to generate a new fix based on the current branch state.`,
     }
   }
 
@@ -825,7 +825,7 @@ export async function acceptFixFromRef(
     logError(LogPrefix.GIT, `Push failed (exit ${push.exitCode}): ${push.stderr.trim()}`)
     return {
       success: false,
-      error: `Cherry-pick succeeded but push to \`${targetBranch}\` failed. The branch may have been updated since the accept started.\n\n${manualSteps}`,
+      error: `Cherry-pick succeeded but push to \`${targetBranch}\` failed. The branch may have been updated since the accept started.\n\n${manualSteps}\n\nAlternatively, use \`/ci-assistant suggest\` or \`/ci-assistant alternative\` to generate a new fix based on the current branch state.`,
     }
   }
 
