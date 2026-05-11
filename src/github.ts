@@ -770,13 +770,24 @@ export async function acceptFixFromRef(
 ): Promise<{ success: boolean; error?: string }> {
   const ref = `refs/ci-assistant/${prNumber}/${fixId}`
 
+  log(LogPrefix.GIT, `Accepting fix ${fixId} for PR #${prNumber}, target branch: ${targetBranch}`)
+
   try {
+    log(LogPrefix.GIT, `Fetching ref ${ref}`)
     await exec.exec("git", ["fetch", "origin", ref], { silent: true })
+
+    log(LogPrefix.GIT, `Cherry-picking FETCH_HEAD`)
     await exec.exec("git", ["cherry-pick", "FETCH_HEAD"], { silent: true })
-    // Push explicitly to the PR branch (HEAD may be detached in command mode)
+
+    log(LogPrefix.GIT, `Pushing to origin HEAD:refs/heads/${targetBranch}`)
     await exec.exec("git", ["push", "origin", `HEAD:refs/heads/${targetBranch}`], { silent: true })
+
+    log(LogPrefix.GIT, `Fix ${fixId} accepted and pushed to ${targetBranch}`)
     return { success: true }
-  } catch {
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    logError(LogPrefix.GIT, `Accept failed for ${fixId}: ${errorMsg}`)
+
     await exec.exec("git", ["cherry-pick", "--abort"], {
       silent: true,
       ignoreReturnCode: true,
