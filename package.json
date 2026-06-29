@@ -45,6 +45,9 @@
     "@actions/io": "3.0.2",
     "@octokit/rest": "22.0.1"
   },
+  "resolutions": {
+    "undici": "^6.27.0"
+  },
   "devDependencies": {
     "@eslint/js": "9.29.0",
     "@swc/core": "1.15.21",
