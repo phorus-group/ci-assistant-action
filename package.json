@@ -38,6 +38,9 @@
       "jest --bail --passWithNoTests --findRelatedTests"
     ]
   },
+  "resolutions": {
+    "undici": "^6.27.0"
+  },
   "dependencies": {
     "@actions/core": "3.0.0",
     "@actions/exec": "3.0.0",
