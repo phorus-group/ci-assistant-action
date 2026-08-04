@@ -39,7 +39,7 @@
     ]
   },
   "resolutions": {
-    "undici": "6.27.0"
+    "undici": "6.28.0"
   },
   "dependencies": {
     "@actions/core": "3.0.0",
